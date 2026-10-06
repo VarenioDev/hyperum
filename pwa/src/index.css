@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: 'Montserrat Alternates', system-ui, sans-serif;
+}
+
+body {
+  /* Мягкий градиентный фон на весь экран */
+  background: linear-gradient(135deg, #fdf2f8 0%, #faf5ff 50%, #eff6ff 100%);
+  background-attachment: fixed;
+  color: #1e1b4b;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ─── Liquid Glass ───────────────────────────────────── */
+
+.glass {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 8px 32px rgba(168, 85, 247, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 12px 40px rgba(168, 85, 247, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.glass-tinted {
+  background: linear-gradient(
+    135deg,
+    rgba(236, 72, 153, 0.12) 0%,
+    rgba(168, 85, 247, 0.12) 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 8px 32px rgba(168, 85, 247, 0.1);
+}
+
+/* ─── Градиентный текст ──────────────────────────────── */
+
+.text-hyper {
+  background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Плавные переходы ───────────────────────────────── */
+
+* {
+  transition-property: background-color, border-color, color, opacity;
+  transition-duration: 200ms;
+}
+
+button {
+  transition-property: transform, box-shadow, background-color, opacity;
+  transition-duration: 150ms;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}

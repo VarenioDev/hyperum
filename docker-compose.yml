@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: hyperum_postgres
+    environment:
+      POSTGRES_USER: hyperum
+      POSTGRES_PASSWORD: hyperum_dev
+      POSTGRES_DB: hyperum
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hyperum"]
+      interval: 5s
+
+  neo4j:
+    image: neo4j:5
+    container_name: hyperum_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/hyperum_dev
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"   # Neo4j Browser
+      - "7687:7687"   # Bolt
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:

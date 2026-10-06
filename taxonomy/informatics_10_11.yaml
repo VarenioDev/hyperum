@@ -1,0 +1,696 @@
+# taxonomy/informatics_10_11.yaml
+# Полная таксономия информатики 10–11 класса (углублённый уровень)
+
+# ═══════════════════════════════════════════════════════════════
+# 10 КЛАСС
+# ═══════════════════════════════════════════════════════════════
+
+- id: m_information
+  name: Информация и информационные процессы
+  topics:
+    - id: t_measuring
+      name: Измерение информации
+      skills:
+        - id: s_volume
+          name: Объём информации (алфавитный подход)
+          difficulty: 0.35
+        - id: s_probability
+          name: Вероятностный подход (формула Шеннона)
+          difficulty: 0.6
+          prerequisites: [s_volume]
+        - id: s_units
+          name: Единицы измерения информации
+          difficulty: 0.25
+
+    - id: t_coding
+      name: Кодирование информации
+      skills:
+        - id: s_text_encoding
+          name: Кодирование текста (ASCII, Unicode)
+          difficulty: 0.4
+          prerequisites: [s_volume]
+        - id: s_image
+          name: Объём графического изображения
+          difficulty: 0.55
+          prerequisites: [s_volume]
+        - id: s_sound_image
+          name: Объём звукозаписи
+          difficulty: 0.55
+          prerequisites: [s_volume]
+        - id: s_fano_direct
+          name: Прямое условие Фано
+          difficulty: 0.5
+        - id: s_fano_reverse
+          name: Обратное условие Фано
+          difficulty: 0.65
+          prerequisites: [s_fano_direct]
+        - id: s_password
+          name: Пароли и идентификаторы
+          difficulty: 0.6
+          prerequisites: [s_volume]
+
+    - id: t_transmission
+      name: Передача информации
+      skills:
+        - id: s_transfer_speed
+          name: Скорость передачи данных
+          difficulty: 0.5
+
+    - id: t_compression
+      name: Сжатие информации
+      skills:
+        - id: s_compression
+          name: Сжатие без потерь и с потерями
+          difficulty: 0.55
+          prerequisites: [s_volume]
+
+- id: m_num_systems
+  name: Системы счисления
+  topics:
+    - id: t_pos_systems
+      name: Позиционные системы счисления
+      skills:
+        - id: s_base_concept
+          name: Понятие основания системы счисления
+          difficulty: 0.3
+        - id: s_dec_to_base
+          name: Перевод из 10-й в 2/8/16
+          difficulty: 0.5
+          prerequisites: [s_base_concept]
+        - id: s_base_to_dec
+          name: Перевод из 2/8/16 в 10-ю
+          difficulty: 0.45
+          prerequisites: [s_base_concept]
+        - id: s_base_relations
+          name: Связь 2-й, 8-й и 16-й систем
+          difficulty: 0.5
+          prerequisites: [s_dec_to_base, s_base_to_dec]
+        - id: s_arith_in_base
+          name: Арифметика в системах счисления
+          difficulty: 0.65
+          prerequisites: [s_dec_to_base, s_base_to_dec]
+
+- id: m_logic
+  name: Основы логики
+  topics:
+    - id: t_logic_basic
+      name: Алгебра логики
+      skills:
+        - id: s_logic_basic
+          name: Базовые логические операции
+          difficulty: 0.3
+        - id: s_logic_implication
+          name: Импликация и эквивалентность
+          difficulty: 0.55
+          prerequisites: [s_logic_basic]
+        - id: s_truth_table
+          name: Таблицы истинности
+          difficulty: 0.45
+          prerequisites: [s_logic_basic]
+        - id: s_logic_laws
+          name: Законы алгебры логики
+          difficulty: 0.6
+          prerequisites: [s_truth_table]
+        - id: s_logic_simplify
+          name: Упрощение логических выражений
+          difficulty: 0.7
+          prerequisites: [s_logic_laws]
+        - id: s_logic_circuits
+          name: Логические элементы и схемы
+          difficulty: 0.6
+          prerequisites: [s_logic_basic]
+        - id: s_logic_problems
+          name: Решение логических задач
+          difficulty: 0.8
+          prerequisites: [s_truth_table, s_logic_simplify]
+
+- id: m_computer
+  name: Компьютер и программное обеспечение
+  topics:
+    - id: t_architecture
+      name: Архитектура компьютера
+      skills:
+        - id: s_von_neumann
+          name: Принципы фон Неймана
+          difficulty: 0.35
+        - id: s_cpu_memory
+          name: Процессор и память
+          difficulty: 0.45
+          prerequisites: [s_von_neumann]
+        - id: s_io_devices
+          name: Устройства ввода-вывода
+          difficulty: 0.3
+        - id: s_architecture
+          name: Общая архитектура ПК
+          difficulty: 0.5
+          prerequisites: [s_von_neumann, s_cpu_memory]
+
+    - id: t_software
+      name: Программное обеспечение
+      skills:
+        - id: s_software_types
+          name: Виды программного обеспечения
+          difficulty: 0.35
+        - id: s_os
+          name: Операционные системы
+          difficulty: 0.4
+        - id: s_file_system
+          name: Файловая система
+          difficulty: 0.45
+          prerequisites: [s_os]
+        - id: s_licensing
+          name: Лицензирование ПО
+          difficulty: 0.4
+
+- id: m_modeling
+  name: Моделирование и формализация
+  topics:
+    - id: t_models
+      name: Модели и их виды
+      skills:
+        - id: s_model_concept
+          name: Понятие модели
+          difficulty: 0.3
+        - id: s_model_types
+          name: Виды моделей (материальные, информационные)
+          difficulty: 0.4
+          prerequisites: [s_model_concept]
+        - id: s_formalization
+          name: Формализация
+          difficulty: 0.55
+          prerequisites: [s_model_types]
+
+    - id: t_model_structures
+      name: Структуры данных моделирования
+      skills:
+        - id: s_table_models
+          name: Табличные модели
+          difficulty: 0.45
+          prerequisites: [s_model_types]
+        - id: s_graph_models
+          name: Графы и сети
+          difficulty: 0.55
+          prerequisites: [s_model_types]
+        - id: s_hierarchy_models
+          name: Иерархические модели
+          difficulty: 0.5
+          prerequisites: [s_model_types]
+
+- id: m_algo_basic
+  name: Алгоритмы и начала программирования
+  topics:
+    - id: t_algo_concept
+      name: Алгоритмы
+      skills:
+        - id: s_algo_concept
+          name: Понятие алгоритма
+          difficulty: 0.3
+        - id: s_algo_properties
+          name: Свойства алгоритма
+          difficulty: 0.35
+          prerequisites: [s_algo_concept]
+        - id: s_algo_forms
+          name: Формы записи алгоритмов
+          difficulty: 0.4
+          prerequisites: [s_algo_concept]
+        - id: s_algo_types
+          name: Виды алгоритмов (линейный, ветвление, цикл)
+          difficulty: 0.45
+          prerequisites: [s_algo_properties]
+
+    - id: t_python_basics
+      name: Основы языка Python
+      skills:
+        - id: s_io
+          name: Ввод-вывод данных
+          difficulty: 0.2
+        - id: s_variables
+          name: Переменные и типы данных
+          difficulty: 0.25
+          prerequisites: [s_io]
+        - id: s_arithmetic
+          name: Арифметические операции
+          difficulty: 0.3
+          prerequisites: [s_variables]
+        - id: s_math_functions
+          name: Математические функции
+          difficulty: 0.35
+          prerequisites: [s_arithmetic]
+
+    - id: t_conditions
+      name: Условный оператор
+      skills:
+        - id: s_if_basic
+          name: Простой условный оператор
+          difficulty: 0.3
+          prerequisites: [s_variables]
+        - id: s_if_else
+          name: Конструкция if-else
+          difficulty: 0.35
+          prerequisites: [s_if_basic]
+        - id: s_if_elif
+          name: Конструкция elif
+          difficulty: 0.4
+          prerequisites: [s_if_else]
+        - id: s_logic_ops
+          name: Логические операции в условиях
+          difficulty: 0.45
+          prerequisites: [s_if_basic]
+
+    - id: t_loops
+      name: Циклы
+      skills:
+        - id: s_for
+          name: Цикл for
+          difficulty: 0.35
+          prerequisites: [s_variables]
+        - id: s_while
+          name: Цикл while
+          difficulty: 0.4
+          prerequisites: [s_for]
+        - id: s_break_continue
+          name: Операторы break и continue
+          difficulty: 0.5
+          prerequisites: [s_for, s_while]
+        - id: s_nested
+          name: Вложенные циклы
+          difficulty: 0.6
+          prerequisites: [s_for, s_while]
+
+    - id: t_strings
+      name: Строки
+      skills:
+        - id: s_string_basic
+          name: Основы работы со строками
+          difficulty: 0.4
+          prerequisites: [s_variables]
+        - id: s_string_index
+          name: Индексация строк
+          difficulty: 0.45
+          prerequisites: [s_string_basic]
+        - id: s_string_slice
+          name: Срезы строк
+          difficulty: 0.55
+          prerequisites: [s_string_index]
+        - id: s_string_methods
+          name: Методы строк
+          difficulty: 0.5
+          prerequisites: [s_string_basic]
+        - id: s_string_iter
+          name: Перебор строк
+          difficulty: 0.5
+          prerequisites: [s_string_basic, s_for]
+
+    - id: t_lists
+      name: Списки
+      skills:
+        - id: s_list_basic
+          name: Создание списков
+          difficulty: 0.4
+          prerequisites: [s_variables]
+        - id: s_index
+          name: Индексация списков
+          difficulty: 0.45
+          prerequisites: [s_list_basic]
+        - id: s_iter_list
+          name: Перебор элементов списка
+          difficulty: 0.5
+          prerequisites: [s_index, s_for]
+        - id: s_list_methods
+          name: Методы списков
+          difficulty: 0.5
+          prerequisites: [s_list_basic]
+        - id: s_slice
+          name: Срезы списков
+          difficulty: 0.55
+          prerequisites: [s_index]
+        - id: s_list_comprehension
+          name: Генераторы списков
+          difficulty: 0.7
+          prerequisites: [s_iter_list, s_if_basic]
+
+    - id: t_other_structures
+      name: Кортежи, словари, множества
+      skills:
+        - id: s_tuple
+          name: Кортежи
+          difficulty: 0.45
+          prerequisites: [s_list_basic]
+        - id: s_dict
+          name: Словари
+          difficulty: 0.55
+          prerequisites: [s_list_basic]
+        - id: s_set
+          name: Множества
+          difficulty: 0.5
+          prerequisites: [s_list_basic]
+        - id: s_dict_methods
+          name: Методы словарей
+          difficulty: 0.55
+          prerequisites: [s_dict]
+
+    - id: t_functions
+      name: Функции
+      skills:
+        - id: s_func_basic
+          name: Определение функции
+          difficulty: 0.5
+          prerequisites: [s_variables]
+        - id: s_func_args
+          name: Аргументы функции
+          difficulty: 0.55
+          prerequisites: [s_func_basic]
+        - id: s_func_return
+          name: Возврат значения
+          difficulty: 0.55
+          prerequisites: [s_func_basic]
+        - id: s_func_scope
+          name: Области видимости
+          difficulty: 0.65
+          prerequisites: [s_func_basic]
+
+# ═══════════════════════════════════════════════════════════════
+# 11 КЛАСС
+# ═══════════════════════════════════════════════════════════════
+
+- id: m_databases
+  name: Информационные системы и базы данных
+  topics:
+    - id: t_info_systems
+      name: Информационные системы
+      skills:
+        - id: s_is_concept
+          name: Понятие информационной системы
+          difficulty: 0.4
+        - id: s_is_types
+          name: Виды информационных систем
+          difficulty: 0.45
+          prerequisites: [s_is_concept]
+
+    - id: t_db
+      name: Базы данных
+      skills:
+        - id: s_db_concept
+          name: Понятие базы данных
+          difficulty: 0.4
+        - id: s_db_types
+          name: Виды баз данных
+          difficulty: 0.45
+          prerequisites: [s_db_concept]
+        - id: s_db_relational
+          name: Реляционная модель данных
+          difficulty: 0.5
+          prerequisites: [s_db_types]
+        - id: s_db_keys
+          name: Ключи и связи в БД
+          difficulty: 0.55
+          prerequisites: [s_db_relational]
+        - id: s_db_normalization
+          name: Нормализация отношений
+          difficulty: 0.7
+          prerequisites: [s_db_keys]
+
+    - id: t_sql
+      name: Язык SQL
+      skills:
+        - id: s_sql_basic
+          name: Выборка данных (SELECT)
+          difficulty: 0.5
+          prerequisites: [s_db_relational]
+        - id: s_sql_filter
+          name: Фильтрация (WHERE, ORDER BY)
+          difficulty: 0.55
+          prerequisites: [s_sql_basic]
+        - id: s_sql_join
+          name: Объединение таблиц (JOIN)
+          difficulty: 0.7
+          prerequisites: [s_sql_filter]
+        - id: s_sql_aggregate
+          name: Агрегатные функции (GROUP BY)
+          difficulty: 0.6
+          prerequisites: [s_sql_filter]
+
+- id: m_networks
+  name: Компьютерные сети и Интернет
+  topics:
+    - id: t_networks
+      name: Компьютерные сети
+      skills:
+        - id: s_network_concept
+          name: Понятие компьютерной сети
+          difficulty: 0.35
+        - id: s_network_types
+          name: Виды сетей (LAN, WAN)
+          difficulty: 0.4
+          prerequisites: [s_network_concept]
+        - id: s_network_topology
+          name: Топология сетей
+          difficulty: 0.5
+          prerequisites: [s_network_types]
+        - id: s_ip_addressing
+          name: IP-адресация
+          difficulty: 0.6
+          prerequisites: [s_network_types]
+        - id: s_network_masks
+          name: Маски подсети
+          difficulty: 0.75
+          prerequisites: [s_ip_addressing]
+        - id: s_network_protocols
+          name: Сетевые протоколы
+          difficulty: 0.55
+          prerequisites: [s_network_types]
+
+    - id: t_internet
+      name: Интернет
+      skills:
+        - id: s_internet_basic
+          name: Интернет и Всемирная паутина
+          difficulty: 0.4
+        - id: s_url
+          name: URL и доменные имена
+          difficulty: 0.35
+          prerequisites: [s_internet_basic]
+        - id: s_http
+          name: Протоколы HTTP/HTTPS
+          difficulty: 0.5
+          prerequisites: [s_internet_basic]
+        - id: s_email
+          name: Электронная почта
+          difficulty: 0.35
+          prerequisites: [s_internet_basic]
+        - id: s_search
+          name: Поиск информации в Интернете
+          difficulty: 0.4
+          prerequisites: [s_internet_basic]
+
+    - id: t_webdev
+      name: Веб-разработка
+      skills:
+        - id: s_html_basic
+          name: Основы HTML
+          difficulty: 0.4
+        - id: s_html_tags
+          name: Теги и атрибуты HTML
+          difficulty: 0.45
+          prerequisites: [s_html_basic]
+        - id: s_html_forms
+          name: HTML-формы
+          difficulty: 0.55
+          prerequisites: [s_html_tags]
+        - id: s_css_basic
+          name: Основы CSS
+          difficulty: 0.45
+          prerequisites: [s_html_basic]
+        - id: s_css_selectors
+          name: Селекторы CSS
+          difficulty: 0.5
+          prerequisites: [s_css_basic]
+        - id: s_web_dynamic
+          name: Динамические веб-страницы
+          difficulty: 0.7
+          prerequisites: [s_html_basic]
+
+- id: m_security
+  name: Информационная безопасность
+  topics:
+    - id: t_security_basic
+      name: Основы информационной безопасности
+      skills:
+        - id: s_security_concept
+          name: Понятие информационной безопасности
+          difficulty: 0.35
+        - id: s_threats
+          name: Угрозы информационной безопасности
+          difficulty: 0.4
+          prerequisites: [s_security_concept]
+        - id: s_protection
+          name: Методы защиты информации
+          difficulty: 0.45
+          prerequisites: [s_threats]
+
+    - id: t_crypto
+      name: Криптография
+      skills:
+        - id: s_crypto_basic
+          name: Основы криптографии
+          difficulty: 0.55
+          prerequisites: [s_security_concept]
+        - id: s_crypto_symmetric
+          name: Симметричное шифрование
+          difficulty: 0.6
+          prerequisites: [s_crypto_basic]
+        - id: s_crypto_asymmetric
+          name: Асимметричное шифрование
+          difficulty: 0.7
+          prerequisites: [s_crypto_basic]
+        - id: s_hash
+          name: Хеширование
+          difficulty: 0.65
+          prerequisites: [s_crypto_basic]
+
+    - id: t_law
+      name: Правовые аспекты
+      skills:
+        - id: s_law_personal
+          name: Защита персональных данных
+          difficulty: 0.4
+        - id: s_law_copyright
+          name: Авторское право в IT
+          difficulty: 0.45
+          prerequisites: [s_law_personal]
+        - id: s_law_ethics
+          name: Этические нормы в информатике
+          difficulty: 0.4
+
+- id: m_algo_advanced
+  name: Алгоритмы и структуры данных
+  topics:
+    - id: t_recursion
+      name: Рекурсия
+      skills:
+        - id: s_recursion_basic
+          name: Понятие рекурсии
+          difficulty: 0.65
+          prerequisites: [s_func_basic]
+        - id: s_recursion_problems
+          name: Рекурсивные задачи
+          difficulty: 0.75
+          prerequisites: [s_recursion_basic]
+
+    - id: t_search_sort
+      name: Поиск и сортировка
+      skills:
+        - id: s_search_linear
+          name: Линейный поиск
+          difficulty: 0.4
+          prerequisites: [s_iter_list]
+        - id: s_search_binary
+          name: Бинарный поиск
+          difficulty: 0.6
+          prerequisites: [s_search_linear]
+        - id: s_sort_bubble
+          name: Сортировка пузырьком
+          difficulty: 0.6
+          prerequisites: [s_iter_list, s_if_basic]
+        - id: s_sort_selection
+          name: Сортировка выбором
+          difficulty: 0.65
+          prerequisites: [s_sort_bubble]
+        - id: s_sort_quick
+          name: Быстрая сортировка
+          difficulty: 0.85
+          prerequisites: [s_recursion_basic, s_sort_bubble]
+        - id: s_sort_python
+          name: Встроенные функции сортировки Python
+          difficulty: 0.45
+          prerequisites: [s_list_methods]
+
+    - id: t_structures
+      name: Структуры данных
+      skills:
+        - id: s_stack
+          name: Стек
+          difficulty: 0.6
+          prerequisites: [s_list_basic]
+        - id: s_queue
+          name: Очередь
+          difficulty: 0.6
+          prerequisites: [s_list_basic]
+        - id: s_linked_list
+          name: Связный список
+          difficulty: 0.7
+          prerequisites: [s_list_basic]
+        - id: s_tree
+          name: Деревья
+          difficulty: 0.8
+          prerequisites: [s_recursion_basic, s_linked_list]
+        - id: s_graph_algorithms
+          name: Алгоритмы на графах
+          difficulty: 0.9
+          prerequisites: [s_graph_models, s_queue]
+
+    - id: t_files
+      name: Работа с файлами
+      skills:
+        - id: s_file_read
+          name: Чтение файлов
+          difficulty: 0.5
+          prerequisites: [s_string_basic]
+        - id: s_file_write
+          name: Запись в файлы
+          difficulty: 0.5
+          prerequisites: [s_file_read]
+        - id: s_file_csv
+          name: Обработка CSV-файлов
+          difficulty: 0.6
+          prerequisites: [s_file_read, s_list_basic]
+
+    - id: t_oop
+      name: Объектно-ориентированное программирование
+      skills:
+        - id: s_oop_class
+          name: Классы и объекты
+          difficulty: 0.7
+          prerequisites: [s_func_basic]
+        - id: s_oop_methods
+          name: Методы класса
+          difficulty: 0.75
+          prerequisites: [s_oop_class]
+        - id: s_oop_inheritance
+          name: Наследование
+          difficulty: 0.8
+          prerequisites: [s_oop_class]
+        - id: s_oop_polymorphism
+          name: Полиморфизм
+          difficulty: 0.85
+          prerequisites: [s_oop_inheritance]
+
+    - id: t_dp
+      name: Динамическое программирование
+      skills:
+        - id: s_dp_basic
+          name: Основы динамического программирования
+          difficulty: 0.8
+          prerequisites: [s_recursion_basic]
+        - id: s_dp_tasks
+          name: Задачи динамического программирования
+          difficulty: 0.9
+          prerequisites: [s_dp_basic]
+
+- id: m_social
+  name: Социальная информатика
+  topics:
+    - id: t_info_society
+      name: Информационное общество
+      skills:
+        - id: s_info_society
+          name: Признаки информационного общества
+          difficulty: 0.35
+        - id: s_info_culture
+          name: Информационная культура
+          difficulty: 0.4
+          prerequisites: [s_info_society]
+        - id: s_info_resources
+          name: Информационные ресурсы
+          difficulty: 0.4
+          prerequisites: [s_info_society]
