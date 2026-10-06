@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
@@ -22,6 +22,7 @@ export default function TeacherGenerate() {
   const [generated, setGenerated] = useState<GeneratedTest | null>(null)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [progress, setProgress] = useState(0)
 
   const { data: group, isLoading: loadingGroup } = useQuery({
     queryKey: ['group', id],
@@ -62,6 +63,25 @@ export default function TeacherGenerate() {
     },
     onError: (err) => setError(getErrorMessage(err)),
   })
+
+  // ─── Управление прогрессом генерации ──────────────────
+  useEffect(() => {
+    if (generateMutation.isPending) {
+      setProgress(5)
+      const interval = setInterval(() => {
+        setProgress((p) => {
+          if (p >= 90) return p
+          return p + Math.max(1, (90 - p) * 0.15)
+        })
+      }, 250)
+      return () => clearInterval(interval)
+    } else if (progress > 0) {
+      setProgress(100)
+      const t = setTimeout(() => setProgress(0), 600)
+      return () => clearTimeout(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateMutation.isPending])
 
   const handleGenerate = () => {
     setError('')
@@ -171,16 +191,43 @@ export default function TeacherGenerate() {
             </div>
           )}
 
-          <button
-            onClick={handleGenerate}
-            disabled={isBusy || !topic}
-            className="w-full bg-hyper text-white font-semibold py-3.5
-                       rounded-2xl shadow-lg shadow-brand-500/30
-                       hover:shadow-xl transition-all
-                       disabled:opacity-50 disabled:shadow-none"
-          >
-            {generateMutation.isPending ? 'Генерируем...' : '✨ Сгенерировать'}
-          </button>
+          {/* Кнопка генерации — с анимацией и прогрессом */}
+          {generateMutation.isPending ? (
+            <div className="space-y-3">
+              <button
+                disabled
+                className="btn-loading w-full font-semibold py-3.5
+                           rounded-2xl transition-all"
+              >
+                <span>Генерируем...</span>
+              </button>
+              <div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-bar__fill"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-500 text-center mt-2">
+                  {progress < 30 && 'Подбираем задания по графу знаний...'}
+                  {progress >= 30 && progress < 60 && 'Проверяем prerequisite...'}
+                  {progress >= 60 && progress < 90 && 'Распределяем diversity...'}
+                  {progress >= 90 && 'Финальная сборка...'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleGenerate}
+              disabled={isBusy || !topic}
+              className="w-full bg-hyper text-white font-semibold py-3.5
+                         rounded-2xl shadow-lg shadow-brand-500/30
+                         hover:shadow-xl transition-all
+                         disabled:opacity-50 disabled:shadow-none"
+            >
+              ✨ Сгенерировать
+            </button>
+          )}
         </div>
 
         {/* Превью сгенерированного теста */}
