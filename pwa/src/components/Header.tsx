@@ -17,7 +17,6 @@ export default function Header({
   right,
 }: Props) {
   const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
 
   const handleLogout = async () => {

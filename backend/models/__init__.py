@@ -34,3 +34,8 @@ __all__ = [
     "MasteryItem", "StudentMastery", "ClassMasteryItem",
     "GraphNode", "GraphEdge", "StudentGraph", "ClassGraph",
 ]
+
+from backend.models.groups import (
+    GroupCreate, GroupResponse, GroupDetail, StudentBrief,
+    GroupByCode, JoinRequest, JoinResponse, ApproveResponse,
+)
