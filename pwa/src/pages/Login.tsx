@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { login, me } from '../api/auth'
 import { getErrorMessage } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
+
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -14,7 +15,8 @@ export default function Login() {
   const location = useLocation()
   const setUser = useAuthStore((s) => s.setUser)
 
-  const from = (location.state as any)?.from?.pathname || '/dashboard'
+  const defaultPath = '/dashboard'
+  const from = (location.state as any)?.from?.pathname || defaultPath 
 
   const loginMutation = useMutation({
     mutationFn: () => login(email, password),
@@ -22,7 +24,11 @@ export default function Login() {
       try {
         const data = await me()
         setUser(data.user)
-        navigate(from, { replace: true })
+
+        // Редирект по роли
+        const isTeacher = data.user.role === 'owner' || data.user.role === 'admin'
+        const target = from !== '/dashboard' ? from : (isTeacher ? '/teacher' : '/dashboard')
+        navigate(target, { replace: true })
       } catch {
         setError('Не удалось загрузить профиль')
       }
@@ -119,6 +125,15 @@ export default function Login() {
           >
             {loginMutation.isPending ? 'Вход...' : 'Войти'}
           </button>
+                    <p className="text-center text-xs text-slate-500 pt-2">
+            Нет аккаунта?{' '}
+            <Link
+                to="/join"
+                className="text-brand-600 font-medium hover:underline"
+            >
+                Зарегистрироваться по коду
+            </Link>
+            </p>
         </form>
 
         <p className="text-center text-xs text-slate-400 mt-6 font-medium">

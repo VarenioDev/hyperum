@@ -40,6 +40,21 @@ async def list_tasks(
         pagination=Pagination(total=total, limit=limit, offset=offset),
     )
 
+@router.get("/topics", response_model=list[str])
+async def list_topics(
+    user: UserResponse = Depends(get_current_user),
+):
+    """Список доступных тем (для генератора тестов)."""
+    from sqlalchemy import text
+    with tenant_session(user.tenant_id) as session:
+        rows = session.execute(text("""
+            SELECT DISTINCT topic FROM skills
+            WHERE topic IS NOT NULL
+            ORDER BY topic
+        """)).fetchall()
+
+    return [r[0] for r in rows]
+
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(

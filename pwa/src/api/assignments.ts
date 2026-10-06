@@ -36,3 +36,77 @@ export async function getAssignmentTasks(
   )
   return data
 }
+
+// ─── Для учителя ────────────────────────────────────────────
+
+export interface GeneratedTask {
+  task_id: string
+  code: string
+  text: string
+  skill_id: string | null
+  difficulty: number | null
+  mastery: number | null
+  score: number | null
+}
+
+export interface GeneratedStudentTest {
+  student_id: string
+  full_name: string
+  tasks: GeneratedTask[]
+  blocked_skills: string[]
+}
+
+export interface GeneratedTest {
+  class_name: string
+  topic: string
+  n_tasks: number
+  students: GeneratedStudentTest[]
+  usage_stats: Record<string, number> | null
+}
+
+export interface GenerateRequest {
+  class_name: string
+  topic: string
+  n_tasks: number
+}
+
+export interface SaveRequest {
+  title: string
+  class_name: string
+  topic: string
+  students: GeneratedStudentTest[]
+}
+
+export async function getTopics(): Promise<string[]> {
+  const { data } = await api.get<string[]>('/tasks/topics')
+  return data
+}
+
+export async function generateTest(
+  payload: GenerateRequest
+): Promise<GeneratedTest> {
+  const { data } = await api.post<GeneratedTest>(
+    '/assignments/generate',
+    payload
+  )
+  return data
+}
+
+export async function saveGeneratedTest(
+  payload: SaveRequest
+): Promise<{ assignment_id: string; status: string }> {
+  const { data } = await api.post('/assignments/save', payload)
+  return data
+}
+
+export async function sendAssignment(
+  assignmentId: string
+): Promise<{
+  assignment_id: string
+  status: string
+  students_count: number
+  message: string
+}> {
+  const { data } = await api.post(`/assignments/${assignmentId}/send`)
+  return data
+}
