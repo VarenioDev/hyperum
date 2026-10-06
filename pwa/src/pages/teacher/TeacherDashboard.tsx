@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listGroups, createGroup } from '../../api/groups'
 import { getErrorMessage } from '../../api/client'
@@ -8,7 +7,6 @@ import Header from '../../components/Header'
 import GroupCard from '../../components/teacher/GroupCard'
 
 export default function TeacherDashboard() {
-  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
 

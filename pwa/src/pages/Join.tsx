@@ -1,11 +1,10 @@
-import { useState, useEffect, type FormEvent } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useState, type FormEvent } from 'react'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { getGroupByCode, joinByCode } from '../api/groups'
 import { getErrorMessage } from '../api/client'
 
 export default function Join() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
   const [code, setCode] = useState(searchParams.get('code')?.toUpperCase() || '')
