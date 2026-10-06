@@ -63,7 +63,7 @@ def tenant_session(tenant_id: str) -> Iterator[Session]:
         # Открываем транзакцию и выставляем tenant для RLS
         session.begin()
         session.execute(
-            text("SET LOCAL app.current_tenant = :t"),
+            text("SELECT set_config('app.current_tenant', :t, true)"),
             {"t": tenant_id},
         )
         yield session
