@@ -26,8 +26,7 @@ class GeneratedStudentTest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    """Запрос на генерацию теста."""
-    class_name: str = Field(..., description="Класс (10А/10Б/10Г)")
+    group_id: UUID = Field(..., description="ID класса (UUID)")
     topic: str = Field(..., description="Тема (например, «Кодирование»)")
     n_tasks: int = Field(5, ge=1, le=20, description="Число заданий на ученика")
 
@@ -76,9 +75,8 @@ class AssignmentForStudent(BaseModel):
 
 
 class SaveAssignmentRequest(BaseModel):
-    """Сохранение сгенерированного теста."""
     title: str = Field(..., min_length=2)
-    class_name: str
+    group_id: UUID
     topic: str
     students: list[GeneratedStudentTest]
 

@@ -25,14 +25,10 @@ async def generate_test(
     payload: GenerateRequest,
     user: UserResponse = Depends(require_teacher),
 ):
-    """
-    Сгенерировать персональные тесты для класса.
-    Не сохраняет — только preview.
-    """
     with tenant_session(user.tenant_id) as session:
-        result = svc.generate_for_class(
+        result = svc.generate_for_group(
             session,
-            class_name=payload.class_name,
+            group_id=str(payload.group_id),
             topic=payload.topic,
             n_tasks=payload.n_tasks,
         )
@@ -75,12 +71,8 @@ async def save_generated(
     payload: SaveAssignmentRequest,
     user: UserResponse = Depends(require_teacher),
 ):
-    """
-    Сохранить сгенерированный тест как черновик.
-    """
-    # Переводим модели обратно в dict
     generated = {
-        "class_name": payload.class_name,
+        "class_name": "",  # больше не используется для поиска
         "topic": payload.topic,
         "n_tasks": max(len(s.tasks) for s in payload.students),
         "students": [
@@ -109,6 +101,7 @@ async def save_generated(
                 session, generated,
                 created_by=str(user.id),
                 title=payload.title,
+                group_id=str(payload.group_id),
             )
         except ValueError as e:
             raise HTTPException(

@@ -65,14 +65,14 @@ export interface GeneratedTest {
 }
 
 export interface GenerateRequest {
-  class_name: string
+  group_id: string
   topic: string
   n_tasks: number
 }
 
 export interface SaveRequest {
   title: string
-  class_name: string
+  group_id: string
   topic: string
   students: GeneratedStudentTest[]
 }

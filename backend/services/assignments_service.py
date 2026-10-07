@@ -25,15 +25,14 @@ def get_group_id(session: Session, class_name: str) -> str | None:
     return str(row[0]) if row else None
 
 
-def get_class_students(session: Session, class_name: str) -> list[dict]:
+def get_group_students(session: Session, group_id: str) -> list[dict]:
     rows = session.execute(text("""
         SELECT DISTINCT u.id, u.full_name
         FROM users u
         JOIN memberships m ON m.user_id = u.id AND m.role = 'student'
-        JOIN groups g ON g.id = m.group_id
-        WHERE g.name = :c
+        WHERE m.group_id = :gid AND m.status = 'active'
         ORDER BY u.full_name
-    """), {"c": class_name}).fetchall()
+    """), {"gid": group_id}).fetchall()
     return [{"id": str(r[0]), "full_name": r[1]} for r in rows]
 
 
@@ -197,20 +196,24 @@ def select_tasks_for_student(
 
 # ─── Генерация для класса ────────────────────────────────────
 
-def generate_for_class(
+def generate_for_group(
     session: Session,
-    class_name: str,
+    group_id: str,
     topic: str,
     n_tasks: int,
     model: str = "deepseek",
 ) -> dict[str, Any]:
-    """
-    Сгенерировать персональные тесты для класса.
-    Возвращает структуру, готовую для сериализации в GeneratedTest.
-    """
-    students = get_class_students(session, class_name)
+    # Получаем информацию о группе
+    group_row = session.execute(text("""
+        SELECT name FROM groups WHERE id = :gid
+    """), {"gid": group_id}).fetchone()
+    if not group_row:
+        return {"error": "Класс не найден"}
+    class_name = group_row[0]
+
+    students = get_group_students(session, group_id)
     if not students:
-        return {"error": f"В классе {class_name} нет учеников"}
+        return {"error": f"В классе {class_name} нет активных учеников"}
 
     skill_ids = get_topic_skills(session, topic)
     if not skill_ids:
@@ -218,12 +221,11 @@ def generate_for_class(
 
     candidates = get_candidate_tasks(session, skill_ids, model=model)
     if not candidates:
-        return {"error": f"По теме «{topic}» нет заданий (модель {model})"}
+        return {"error": f"По теме «{topic}» нет размеченных заданий"}
 
     usage_counter: dict[str, int] = {}
     students_result = []
 
-    # Случайный порядок учеников — честнее распределяет diversity
     shuffled = list(students)
     random.shuffle(shuffled)
 
@@ -231,7 +233,6 @@ def generate_for_class(
         mastery = get_student_mastery(session, student["id"])
         blocked = get_weak_prerequisites(student["id"], skill_ids)
 
-        # Фильтруем кандидатов
         filtered = [c for c in candidates if c["skill_id"] not in blocked] \
             if blocked else candidates
         if not filtered:
@@ -251,7 +252,6 @@ def generate_for_class(
             "blocked_skills": list(blocked),
         })
 
-    # Возвращаем в исходном порядке по ФИО
     students_result.sort(key=lambda x: x["full_name"])
 
     return {
@@ -274,14 +274,14 @@ def save_assignment(
     generated: dict,
     created_by: str,
     title: str,
+    group_id: str,   # ← теперь обязательный параметр
 ) -> str:
-    """
-    Сохранить сгенерированный тест как черновик.
-    Возвращает assignment_id.
-    """
-    group_id = get_group_id(session, generated["class_name"])
-    if not group_id:
-        raise ValueError(f"Класс {generated['class_name']} не найден")
+    # Проверяем, что группа существует
+    group_exists = session.execute(text("""
+        SELECT 1 FROM groups WHERE id = :gid
+    """), {"gid": group_id}).fetchone()
+    if not group_exists:
+        raise ValueError(f"Класс не найден")
 
     assignment_id = str(uuid.uuid4())
 
@@ -355,11 +355,11 @@ def list_assignments_for_student(
         SELECT a.id, a.title, a.topic, a.status, a.deadline, a.created_at,
                (SELECT COUNT(*) FROM assignment_tasks
                 WHERE assignment_id = a.id AND student_id = :sid) AS task_count,
-               (SELECT COUNT(*) FROM responses r
-                JOIN assignment_tasks at
-                  ON at.task_id = r.task_id AND at.assignment_id = a.id
-                WHERE at.student_id = :sid AND r.correct IS NOT NULL
-               ) AS completed_count
+               (SELECT COUNT(DISTINCT r.task_id) FROM responses r
+                    JOIN assignment_tasks at
+                    ON at.task_id = r.task_id AND at.assignment_id = a.id
+                    WHERE at.student_id = :sid AND r.correct IS NOT NULL
+                    ) AS completed_count
         FROM assignments a
         JOIN assignment_students ast ON ast.assignment_id = a.id
         WHERE ast.student_id = :sid AND a.status IN ('sent', 'completed')

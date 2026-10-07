@@ -21,15 +21,22 @@ export default function TeacherDashboard() {
   })
 
   const createMutation = useMutation({
-    mutationFn: createGroup,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
-      setShowCreate(false)
-      setNewName('')
-      setError('')
-    },
-    onError: (err) => setError(getErrorMessage(err)),
-  })
+  mutationFn: createGroup,
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['groups'] })
+    setShowCreate(false)
+    setNewName('')
+    setError('')
+  },
+  onError: (err) => {
+    const msg = getErrorMessage(err)
+    if (msg.includes('unique') || msg.includes('duplicate')) {
+      setError('Класс с таким названием уже существует')
+    } else {
+      setError(msg)
+    }
+  },
+})
 
   const handleCreate = () => {
     setError('')

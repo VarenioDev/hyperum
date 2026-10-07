@@ -84,28 +84,28 @@ export default function TeacherGenerate() {
   }, [generateMutation.isPending])
 
   const handleGenerate = () => {
-    setError('')
-    if (!group) return
-    if (!topic) {
-      setError('Выбери тему')
-      return
-    }
-    generateMutation.mutate({
-      class_name: group.name,
-      topic,
-      n_tasks: nTasks,
-    })
+  setError('')
+  if (!group) return
+  if (!topic) {
+    setError('Выбери тему')
+    return
   }
+  generateMutation.mutate({
+    group_id: id!,           // ← было class_name: group.name
+    topic,
+    n_tasks: nTasks,
+  })
+}
 
   const handleSave = () => {
-    if (!generated) return
-    saveMutation.mutate({
-      title: title || `${generated.topic} — ${generated.class_name}`,
-      class_name: generated.class_name,
-      topic: generated.topic,
-      students: generated.students,
-    })
-  }
+  if (!generated) return
+  saveMutation.mutate({
+    title: title || `${generated.topic} — ${generated.class_name}`,
+    group_id: id!,           // ← было class_name
+    topic: generated.topic,
+    students: generated.students,
+  })
+}
 
   const handleSend = () => {
     if (!savedId) return
