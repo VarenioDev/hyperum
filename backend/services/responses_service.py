@@ -281,6 +281,7 @@ def submit_response(
                 student_id, skill_id,
                 new_mastery, stats[0], stats[1],
             )
+    _mark_assignment_completed_if_done(session, tenant_id, student_id, task_id)
 
     return {
         "response_id": response_id,

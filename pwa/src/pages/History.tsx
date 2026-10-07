@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMyResponses, type MyResponse } from '../api/responses'
 import Header from '../components/Header'
 
 export default function History() {
-  const navigate = useNavigate()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const { data: responses, isLoading } = useQuery({
