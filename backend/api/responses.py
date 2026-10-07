@@ -36,13 +36,14 @@ async def submit_response(
 
     with tenant_session(user.tenant_id) as session:
         result = svc.submit_response(
-            session,
-            tenant_id=user.tenant_id,
-            student_id=user.id,
-            task_id=payload.task_id,
-            answer=payload.answer,
-            time_sec=payload.time_sec,
-        )
+        session,
+        tenant_id=user.tenant_id,
+        student_id=user.id,
+        task_id=payload.task_id,
+        answer=payload.answer,
+        time_sec=payload.time_sec,
+        skipped=payload.skipped,
+    )
 
     if result is None:
         raise HTTPException(

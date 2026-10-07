@@ -9,8 +9,9 @@ from pydantic import BaseModel, Field, ConfigDict
 class ResponseCreate(BaseModel):
     """Отправка ответа учеником."""
     task_id: UUID
-    answer: str = Field(..., description="Ответ ученика")
+    answer: str = Field("", description="Ответ ученика")
     time_sec: int | None = Field(None, ge=0, description="Время решения в секундах")
+    skipped: bool = Field(False, description="Задание пропущено")
 
 
 class ResponseResult(BaseModel):
@@ -19,6 +20,7 @@ class ResponseResult(BaseModel):
     expected: str | None = Field(None, description="Правильный ответ")
     explanation: str | None = Field(None, description="Пояснение")
     new_mastery: float | None = Field(None, ge=0.0, le=1.0)
+    skipped: bool = False
 
 
 class ResponseResponse(BaseModel):

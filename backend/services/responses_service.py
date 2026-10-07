@@ -182,34 +182,54 @@ def submit_response(
     task_id: UUID | str,
     answer: str,
     time_sec: int | None = None,
+    skipped: bool = False,
 ) -> dict | None:
-    """
-    Полный цикл: проверка + сохранение + обновление mastery.
-    Возвращает словарь с результатом или None, если задание не найдено.
-    """
-    # 1. Проверка
+    # Проверка, что задание существует
+    check = session.execute(text("""
+        SELECT 1 FROM tasks WHERE id = :tid
+    """), {"tid": str(task_id)}).fetchone()
+    if not check:
+        return None
+
+    # Если это пропуск — не проверяем, не обновляем mastery
+    if skipped:
+        response_id = session.execute(text("""
+            INSERT INTO responses
+                (tenant_id, student_id, task_id, answer, correct, time_sec, skipped)
+            VALUES
+                (:t, :s, :task, '', NULL, :time, TRUE)
+            RETURNING id
+        """), {
+            "t": tenant_id, "s": str(student_id),
+            "task": str(task_id), "time": time_sec,
+        }).scalar()
+
+        return {
+            "response_id": str(response_id),
+            "correct": False,
+            "expected": None,
+            "new_mastery": None,
+            "skipped": True,
+        }
+
+    # Обычная логика (проверка + сохранение + mastery)
     result = check_answer(session, task_id, answer)
     if result is None:
         return None
 
-    # 2. Сохранение ответа
     response_id = save_response(
         session, tenant_id, student_id, task_id,
         answer, result["correct"], time_sec,
     )
 
-    # 3. Обновление mastery по всем навыкам задания
     skill_ids = get_task_skills(session, task_id)
     new_mastery = None
     for skill_id in skill_ids:
         new_mastery = update_mastery(session, tenant_id, student_id, skill_id)
-
-        # 4. Обновляем счётчики для sync в Neo4j
         stats = session.execute(text("""
             SELECT attempts, correct FROM student_mastery
             WHERE tenant_id = :t AND student_id = :s AND skill_id = :sk
         """), {"t": tenant_id, "s": str(student_id), "sk": skill_id}).fetchone()
-
         if stats:
             sync_mastery_to_neo4j(
                 student_id, skill_id,
@@ -221,6 +241,7 @@ def submit_response(
         "correct": result["correct"],
         "expected": result["expected"],
         "new_mastery": new_mastery,
+        "skipped": False,
     }
 
 

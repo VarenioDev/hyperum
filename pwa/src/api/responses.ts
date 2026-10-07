@@ -7,6 +7,7 @@ export interface SubmitResponsePayload {
   task_id: string
   answer: string
   time_sec?: number
+  skipped?: boolean
 }
 
 export interface ResponseResult {
@@ -14,6 +15,7 @@ export interface ResponseResult {
   expected: string | null
   explanation: string | null
   new_mastery: number | null
+  skipped: boolean
 }
 
 export async function submitResponse(
