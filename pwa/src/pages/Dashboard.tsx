@@ -94,46 +94,87 @@ export default function Dashboard() {
         )}
 
         {/* Активные задания */}
-        {user.role === 'student' && (
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold text-slate-700">
-                Активные задания
-              </h2>
-              <button
-                onClick={() => navigate('/history')}
-                className="text-xs font-medium text-brand-600 hover:text-brand-700"
-              >
-                История →
-              </button>
+{user.role === 'student' && (
+  <section>
+    <div className="flex items-center justify-between mb-3">
+      <h2 className="text-base font-semibold text-slate-700">
+        Активные задания
+      </h2>
+      <button
+        onClick={() => navigate('/history')}
+        className="text-xs font-medium text-brand-600 hover:text-brand-700"
+      >
+        История →
+      </button>
+    </div>
+
+    {loadingAssignments && (
+      <div className="text-center text-slate-400 text-sm py-6">
+        Загрузка...
+      </div>
+    )}
+
+    {!loadingAssignments && (() => {
+      const active = (assignments || []).filter(
+        (a) => a.student_status !== 'completed'
+      )
+      const done = (assignments || []).filter(
+        (a) => a.student_status === 'completed'
+      )
+      return (
+        <>
+          {active.length === 0 && (
+            <div className="glass rounded-2xl p-6 text-center">
+              <p className="text-slate-600 text-sm font-medium">
+                Нет активных заданий
+              </p>
+              <p className="text-slate-400 text-xs mt-1">
+                Учитель скоро назначит что-то новое
+              </p>
             </div>
+          )}
 
-            {loadingAssignments && (
-              <div className="text-center text-slate-400 text-sm py-6">
-                Загрузка...
-              </div>
-            )}
+          {active.length > 0 && (
+            <div className="space-y-3">
+              {active.map((a) => (
+                <AssignmentCard key={a.id} assignment={a} />
+              ))}
+            </div>
+          )}
 
-            {!loadingAssignments && (!assignments || assignments.length === 0) && (
-              <div className="glass rounded-2xl p-6 text-center">
-                <p className="text-slate-600 text-sm font-medium">
-                  Пока нет активных заданий
-                </p>
-                <p className="text-slate-400 text-xs mt-1">
-                  Учитель скоро назначит что-то новое
-                </p>
-              </div>
-            )}
-
-            {!loadingAssignments && assignments && assignments.length > 0 && (
-              <div className="space-y-3">
-                {assignments.map((a) => (
-                  <AssignmentCard key={a.id} assignment={a} />
+          {done.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-xs uppercase tracking-wide text-slate-400 font-medium mb-3">
+                Пройденные
+              </h3>
+              <div className="space-y-2">
+                {done.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => navigate(`/assignment/${a.id}`)}
+                    className="w-full glass rounded-2xl p-4 flex items-center gap-3
+                               opacity-70 hover:opacity-100 transition-opacity text-left"
+                  >
+                    <span className="text-xl shrink-0">✅</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-600 truncate">
+                        {a.title}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {a.topic} · {a.task_count} заданий
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400 shrink-0">→</span>
+                  </button>
                 ))}
               </div>
-            )}
-          </section>
-        )}
+            </div>
+          )}
+        </>
+      )
+    })()}
+  </section>
+)}
 
         {/* Слабые навыки */}
         {user.role === 'student' && (

@@ -28,11 +28,16 @@ export async function submitResponse(
 export interface MyResponse {
   id: string
   task_id: string
-  code: string
+  code: string | null
+  task_text: string | null
+  expected: string | null
   answer: string
   correct: boolean | null
+  skipped: boolean
   time_sec: number | null
   created_at: string
+  assignment_title: string | null
+  skill_name: string | null
 }
 
 export async function getMyResponses(

@@ -17,6 +17,52 @@ PRIOR = 0.5       # сглаживание к среднему при малом
 WEIGHT = 3.0      # «вес» prior'а (сколько виртуальных попыток)
 
 
+def _mark_assignment_completed_if_done(
+    session: Session,
+    tenant_id: str,
+    student_id: UUID | str,
+    task_id: UUID | str,
+) -> None:
+    """
+    Проверяет, все ли задания текущего assignment покрыты ответами,
+    и если да — ставит status='completed'.
+    """
+    # Находим assignment по task_id и student_id
+    row = session.execute(text("""
+        SELECT at.assignment_id
+        FROM assignment_tasks at
+        WHERE at.task_id = :tid AND at.student_id = :sid
+        LIMIT 1
+    """), {"tid": str(task_id), "sid": str(student_id)}).fetchone()
+
+    if not row:
+        return
+
+    assignment_id = row[0]
+
+    # Сколько заданий всего и сколько покрыто
+    stats = session.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM assignment_tasks
+             WHERE assignment_id = :aid AND student_id = :sid) AS total,
+            (SELECT COUNT(DISTINCT r.task_id) FROM responses r
+             JOIN assignment_tasks at
+               ON at.task_id = r.task_id AND at.assignment_id = :aid
+             WHERE at.student_id = :sid
+               AND r.student_id = :sid
+               AND (r.correct IS NOT NULL OR r.skipped = TRUE)
+            ) AS done
+    """), {"aid": str(assignment_id), "sid": str(student_id)}).fetchone()
+
+    if stats and stats[0] > 0 and stats[0] == stats[1]:
+        session.execute(text("""
+            UPDATE assignment_students
+            SET status = 'completed', completed_at = now()
+            WHERE assignment_id = :aid
+              AND student_id = :sid
+              AND status != 'completed'
+        """), {"aid": str(assignment_id), "sid": str(student_id)})
+
 def _smoothed_mastery(correct: int, attempts: int) -> float:
     """
     Байесовское сглаживание mastery.
@@ -254,10 +300,18 @@ def list_my_responses(
     offset: int = 0,
 ) -> list[dict]:
     rows = session.execute(text("""
-        SELECT r.id, r.task_id, t.code, r.answer, r.correct,
-               r.time_sec, r.created_at
+        SELECT r.id, r.task_id, t.code, t.text, t.answer,
+               r.answer, r.correct, r.skipped, r.time_sec, r.created_at,
+               a.title AS assignment_title,
+               s.name AS skill_name
         FROM responses r
         JOIN tasks t ON t.id = r.task_id
+        LEFT JOIN assignment_tasks at
+          ON at.task_id = r.task_id AND at.student_id = r.student_id
+        LEFT JOIN assignments a ON a.id = at.assignment_id
+        LEFT JOIN task_labels tl
+          ON tl.task_id = r.task_id AND tl.model = 'deepseek'
+        LEFT JOIN skills s ON s.id = tl.skill_id
         WHERE r.student_id = :sid
         ORDER BY r.created_at DESC
         LIMIT :lim OFFSET :off
@@ -266,8 +320,10 @@ def list_my_responses(
     return [
         {
             "id": r[0], "task_id": r[1], "code": r[2],
-            "answer": r[3], "correct": r[4],
-            "time_sec": r[5], "created_at": r[6],
+            "task_text": r[3], "expected": r[4],
+            "answer": r[5], "correct": r[6], "skipped": r[7],
+            "time_sec": r[8], "created_at": r[9],
+            "assignment_title": r[10], "skill_name": r[11],
         }
         for r in rows
     ]
@@ -349,6 +405,11 @@ def assignment_progress(
     total_attempts = stats[2] or 0
     total_correct = stats[3] or 0
     correct_rate = total_correct / total_attempts if total_attempts else 0.0
+
+        # Проверяем: все ли задания в assignment покрыты — если да, помечаем completed
+    _mark_assignment_completed_if_done(
+        session, tenant_id, student_id, task_id
+    )
 
     return {
         "assignment_id": str(assignment_id),

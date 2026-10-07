@@ -8,6 +8,7 @@ export interface MyAssignment {
   title: string
   topic: string
   status: string
+  student_status: 'pending' | 'in_progress' | 'completed'
   deadline: string | null
   task_count: number
   completed_count: number

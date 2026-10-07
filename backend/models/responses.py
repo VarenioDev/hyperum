@@ -24,13 +24,18 @@ class ResponseResult(BaseModel):
 
 
 class ResponseResponse(BaseModel):
-    """Сохранённый ответ ученика."""
     id: UUID
     task_id: UUID
+    code: str | None = None
+    task_text: str | None = None
+    expected: str | None = None
     answer: str
     correct: bool | None
+    skipped: bool = False
     time_sec: int | None
     created_at: datetime
+    assignment_title: str | None = None
+    skill_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

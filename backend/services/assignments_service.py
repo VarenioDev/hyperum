@@ -353,18 +353,20 @@ def list_assignments_for_student(
 ) -> list[dict]:
     rows = session.execute(text("""
         SELECT a.id, a.title, a.topic, a.status, a.deadline, a.created_at,
+               ast.status AS student_status,
                (SELECT COUNT(*) FROM assignment_tasks
                 WHERE assignment_id = a.id AND student_id = :sid) AS task_count,
                (SELECT COUNT(DISTINCT r.task_id) FROM responses r
-                    JOIN assignment_tasks at
-                    ON at.task_id = r.task_id AND at.assignment_id = a.id
-                    WHERE at.student_id = :sid 
-                    AND r.student_id = :sid
-                    AND r.correct IS NOT NULL
-                    ) AS completed_count
+                JOIN assignment_tasks at
+                  ON at.task_id = r.task_id AND at.assignment_id = a.id
+                WHERE at.student_id = :sid
+                  AND r.student_id = :sid
+                  AND (r.correct IS NOT NULL OR r.skipped = TRUE)
+               ) AS completed_count
         FROM assignments a
         JOIN assignment_students ast ON ast.assignment_id = a.id
-        WHERE ast.student_id = :sid AND a.status IN ('sent', 'completed')
+        WHERE ast.student_id = :sid
+          AND a.status IN ('sent', 'completed')
         ORDER BY a.created_at DESC
     """), {"sid": student_id}).fetchall()
 
@@ -372,7 +374,8 @@ def list_assignments_for_student(
         {
             "id": r[0], "title": r[1], "topic": r[2], "status": r[3],
             "deadline": r[4], "created_at": r[5],
-            "task_count": r[6], "completed_count": r[7],
+            "student_status": r[6],
+            "task_count": r[7], "completed_count": r[8],
         }
         for r in rows
     ]

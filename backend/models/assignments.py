@@ -103,11 +103,11 @@ class AssignmentListItem(BaseModel):
 
 
 class MyAssignmentBrief(BaseModel):
-    """Краткая карточка назначения для ученика."""
     id: UUID
     title: str
     topic: str
     status: str
+    student_status: str = "pending"   # ← новое
     deadline: datetime | None = None
     task_count: int
     completed_count: int = 0
