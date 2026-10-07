@@ -358,7 +358,9 @@ def list_assignments_for_student(
                (SELECT COUNT(DISTINCT r.task_id) FROM responses r
                     JOIN assignment_tasks at
                     ON at.task_id = r.task_id AND at.assignment_id = a.id
-                    WHERE at.student_id = :sid AND r.correct IS NOT NULL
+                    WHERE at.student_id = :sid 
+                    AND r.student_id = :sid
+                    AND r.correct IS NOT NULL
                     ) AS completed_count
         FROM assignments a
         JOIN assignment_students ast ON ast.assignment_id = a.id
@@ -379,11 +381,6 @@ def list_assignments_for_student(
 def get_assignment_tasks(
     session: Session, assignment_id: str, student_id: str
 ) -> list[dict] | None:
-    """
-    Задания назначения для ученика.
-    Без правильных ответов!
-    """
-    # Проверяем, что этот ученик есть в назначении
     check = session.execute(text("""
         SELECT 1 FROM assignment_students
         WHERE assignment_id = :aid AND student_id = :sid
@@ -392,20 +389,43 @@ def get_assignment_tasks(
         return None
 
     rows = session.execute(text("""
-        SELECT at.position, t.id, t.code, t.text, t.type, t.options
+        SELECT at.position, t.id, t.code, t.text, t.type, t.options,
+               t.answer AS expected,
+               r.answer, r.correct, r.skipped, r.time_sec
         FROM assignment_tasks at
         JOIN tasks t ON t.id = at.task_id
+        LEFT JOIN LATERAL (
+            SELECT answer, correct, skipped, time_sec
+            FROM responses
+            WHERE task_id = at.task_id
+              AND student_id = at.student_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) r ON TRUE
         WHERE at.assignment_id = :aid AND at.student_id = :sid
         ORDER BY at.position
     """), {"aid": assignment_id, "sid": student_id}).fetchall()
 
-    return [
-        {
+    result = []
+    for r in rows:
+        task_data = {
             "position": r[0], "task_id": str(r[1]), "code": r[2],
             "text": r[3], "type": r[4], "options": r[5],
+            "previous_response": None,
         }
-        for r in rows
-    ]
+
+        # Есть ли предыдущий ответ (или пропуск)
+        if r[7] is not None or r[9] is True:
+            task_data["previous_response"] = {
+                "answer": r[7] or "",
+                "correct": r[8],
+                "skipped": r[9] or False,
+                "time_sec": r[10],
+                "expected": r[6],
+            }
+        result.append(task_data)
+
+    return result
 
 
 def send_assignment(

@@ -52,14 +52,22 @@ class AssignmentBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PreviousResponse(BaseModel):
+    answer: str
+    correct: bool | None = None
+    skipped: bool = False
+    time_sec: int | None = None
+    expected: str | None = None
+
+
 class AssignmentTaskForStudent(BaseModel):
-    """Задание для решения учеником (без правильного ответа!)."""
     position: int
     task_id: UUID
     code: str
     text: str
     type: str
     options: dict | None = None
+    previous_response: PreviousResponse | None = None
 
     model_config = {"from_attributes": True}
 
