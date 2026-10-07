@@ -104,20 +104,3 @@ class ApproveResponse(BaseModel):
     student_id: UUID
     status: str
     message: str
-
-@router.delete("/{group_id}/members/{student_id}", response_model=dict)
-async def remove_member(
-    group_id: UUID,
-    student_id: UUID,
-    user: UserResponse = Depends(require_teacher),
-):
-    """Убрать ученика из класса."""
-    with tenant_session(user.tenant_id) as session:
-        ok = svc.remove_student_from_group(
-            session, group_id, student_id, str(user.id)
-        )
-
-    if not ok:
-        raise HTTPException(404, detail="Класс или ученик не найден")
-
-    return {"status": "removed", "student_id": str(student_id)}
