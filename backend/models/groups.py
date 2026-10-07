@@ -4,6 +4,10 @@
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
+import re
+from datetime import datetime
+from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 
 
 # ─── Создание класса ────────────────────────────────────────
@@ -57,11 +61,33 @@ class GroupByCode(BaseModel):
 # ─── Регистрация ученика по коду ────────────────────────────
 
 class JoinRequest(BaseModel):
-    """Регистрация ученика по инвайт-коду."""
     code: str = Field(..., min_length=4, max_length=10)
-    full_name: str = Field(..., min_length=2)
+    full_name: str = Field(..., min_length=5, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=6)
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        v = v.strip()
+
+        # Только кириллица, пробелы и дефисы
+        if not re.match(r"^[А-Яа-яЁё\s\-]+$", v):
+            raise ValueError("ФИО должно содержать только русские буквы, пробелы и дефисы")
+
+        # Минимум 2 слова
+        parts = [p for p in re.split(r"\s+", v) if p]
+        if len(parts) < 2:
+            raise ValueError("Укажите фамилию и имя")
+
+        # Каждое слово — минимум 2 буквы
+        for part in parts:
+            if len(part) < 2:
+                raise ValueError("Каждая часть ФИО должна содержать минимум 2 буквы")
+
+        # Первая буква каждого слова — заглавная (не строго, но нормализуем)
+        normalized = " ".join(p.capitalize() for p in parts)
+        return normalized
 
 
 class JoinResponse(BaseModel):
@@ -78,3 +104,20 @@ class ApproveResponse(BaseModel):
     student_id: UUID
     status: str
     message: str
+
+@router.delete("/{group_id}/members/{student_id}", response_model=dict)
+async def remove_member(
+    group_id: UUID,
+    student_id: UUID,
+    user: UserResponse = Depends(require_teacher),
+):
+    """Убрать ученика из класса."""
+    with tenant_session(user.tenant_id) as session:
+        ok = svc.remove_student_from_group(
+            session, group_id, student_id, str(user.id)
+        )
+
+    if not ok:
+        raise HTTPException(404, detail="Класс или ученик не найден")
+
+    return {"status": "removed", "student_id": str(student_id)}

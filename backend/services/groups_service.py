@@ -264,3 +264,56 @@ def regenerate_code(session: Session, group_id: UUID | str, owner_id: str) -> st
     """), {"c": code, "gid": str(group_id)})
 
     return code
+
+def update_student_name(
+    session: Session,
+    student_id: UUID | str,
+    new_name: str,
+    owner_id: str,
+) -> bool:
+    """
+    Обновить ФИО ученика. Только если этот ученик есть в классе этого учителя.
+    """
+    check = session.execute(text("""
+        SELECT 1 FROM users u
+        JOIN memberships m ON m.user_id = u.id
+        JOIN groups g ON g.id = m.group_id
+        WHERE u.id = :sid
+          AND u.role = 'student'
+          AND g.owner_id = :owner
+        LIMIT 1
+    """), {"sid": str(student_id), "owner": owner_id}).fetchone()
+
+    if not check:
+        return False
+
+    session.execute(text("""
+        UPDATE users SET full_name = :name WHERE id = :sid
+    """), {"name": new_name, "sid": str(student_id)})
+
+    return True
+
+def remove_student_from_group(
+    session: Session,
+    group_id: UUID | str,
+    student_id: UUID | str,
+    owner_id: str,
+) -> bool:
+    """
+    Убрать ученика из класса (soft delete — ставим rejected).
+    """
+    check = session.execute(text("""
+        SELECT 1 FROM groups
+        WHERE id = :gid AND owner_id = :owner
+    """), {"gid": str(group_id), "owner": owner_id}).fetchone()
+
+    if not check:
+        return False
+
+    session.execute(text("""
+        UPDATE memberships
+        SET status = 'rejected'
+        WHERE group_id = :gid AND user_id = :sid AND role = 'student'
+    """), {"gid": str(group_id), "sid": str(student_id)})
+
+    return True

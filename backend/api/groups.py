@@ -12,6 +12,7 @@ from backend.models.groups import (
 )
 from backend.models.users import UserResponse
 from backend.services import groups_service as svc
+from backend.models.users import UserResponse, StudentUpdate
 
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -153,3 +154,37 @@ async def reject(
         status="rejected",
         message="Заявка отклонена",
     )
+
+@router.patch("/student/{student_id}", response_model=dict)
+async def update_student(
+    student_id: UUID,
+    payload: StudentUpdate,
+    user: UserResponse = Depends(require_teacher),
+):
+    """Обновить ФИО ученика."""
+    with tenant_session(user.tenant_id) as session:
+        ok = svc.update_student_name(
+            session, student_id, payload.full_name, str(user.id)
+        )
+
+    if not ok:
+        raise HTTPException(404, detail="Ученик не найден в ваших классах")
+
+    return {"student_id": str(student_id), "full_name": payload.full_name}
+
+@router.delete("/{group_id}/members/{student_id}", response_model=dict)
+async def remove_member(
+    group_id: UUID,
+    student_id: UUID,
+    user: UserResponse = Depends(require_teacher),
+):
+    """Убрать ученика из класса."""
+    with tenant_session(user.tenant_id) as session:
+        ok = svc.remove_student_from_group(
+            session, group_id, student_id, str(user.id)
+        )
+
+    if not ok:
+        raise HTTPException(404, detail="Класс или ученик не найден")
+
+    return {"status": "removed", "student_id": str(student_id)}

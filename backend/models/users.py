@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 
 
 class UserBase(BaseModel):
@@ -44,3 +44,19 @@ class StudentCreate(BaseModel):
     full_name: str = Field(..., min_length=2)
     email: EmailStr | None = None
     group_id: UUID | None = Field(None, description="Класс/группа")
+
+class StudentUpdate(BaseModel):
+    """Обновление данных ученика учителем."""
+    full_name: str = Field(..., min_length=5, max_length=100)
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        import re
+        v = v.strip()
+        if not re.match(r"^[А-Яа-яЁё\s\-]+$", v):
+            raise ValueError("ФИО должно содержать только русские буквы, пробелы и дефисы")
+        parts = [p for p in re.split(r"\s+", v) if p]
+        if len(parts) < 2:
+            raise ValueError("Укажите фамилию и имя")
+        return " ".join(p.capitalize() for p in parts)

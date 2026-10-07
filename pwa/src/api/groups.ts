@@ -99,3 +99,23 @@ export async function rejectStudent(groupId: string, studentId: string) {
   )
   return data
 }
+
+export async function updateStudentName(
+  studentId: string,
+  fullName: string
+): Promise<{ student_id: string; full_name: string }> {
+  const { data } = await api.patch(`/groups/student/${studentId}`, {
+    full_name: fullName,
+  })
+  return data
+}
+
+export async function removeStudentFromGroup(
+  groupId: string,
+  studentId: string
+): Promise<{ status: string; student_id: string }> {
+  const { data } = await api.delete(
+    `/groups/${groupId}/members/${studentId}`
+  )
+  return data
+}
