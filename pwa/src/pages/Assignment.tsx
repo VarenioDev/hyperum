@@ -36,14 +36,42 @@ export default function Assignment() {
   const isLast = tasks ? currentIndex === tasks.length - 1 : false
 
   // Сбросить таймер при смене задания + восстановить ответ из стейта
-  useEffect(() => {
-    startTimeRef.current = Date.now()
-    if (currentTask) {
-      const state = taskStates[currentTask.task_id]
-      setAnswer(state?.answer || '')
+  // При загрузке заданий — восстановить прогресс из previous_response
+useEffect(() => {
+  if (!tasks) return
+
+  const initial: Record<string, TaskState> = {}
+  let firstUnanswered = -1
+
+  tasks.forEach((t, idx) => {
+    if (t.previous_response) {
+      initial[t.task_id] = {
+        answer: t.previous_response.answer || '',
+        submitted: true,
+        result: {
+          correct: t.previous_response.correct ?? false,
+          expected: t.previous_response.expected,
+          explanation: null,
+          new_mastery: null,
+          skipped: t.previous_response.skipped,
+        },
+      }
+    } else if (firstUnanswered === -1) {
+      firstUnanswered = idx
     }
-    setError('')
-  }, [currentIndex, currentTask?.task_id])
+  })
+
+  setTaskStates(initial)
+
+  // Открыть первое нерешённое (или последнее, если всё решено)
+  if (firstUnanswered !== -1) {
+    setCurrentIndex(firstUnanswered)
+  } else {
+    setCurrentIndex(tasks.length - 1)
+  }
+}, [tasks])
+
+  
 
   const submitMutation = useMutation({
     mutationFn: submitResponse,

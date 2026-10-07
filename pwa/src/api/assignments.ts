@@ -14,6 +14,14 @@ export interface MyAssignment {
   created_at: string
 }
 
+export interface PreviousResponse {
+  answer: string
+  correct: boolean | null
+  skipped: boolean
+  time_sec: number | null
+  expected: string | null
+}
+
 export interface AssignmentTask {
   position: number
   task_id: string
@@ -21,6 +29,7 @@ export interface AssignmentTask {
   text: string
   type: string
   options: Record<string, unknown> | null
+  previous_response: PreviousResponse | null
 }
 
 export async function getMyAssignments(): Promise<MyAssignment[]> {
