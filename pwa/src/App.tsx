@@ -13,11 +13,14 @@ import History from './pages/History'
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
 import TeacherClass from './pages/teacher/TeacherClass'
 import TeacherGenerate from './pages/teacher/TeacherGenerate'
+import { useSwipeBack } from './hooks/useSwipeBack'
 
 function App() {
   const setUser = useAuthStore((s) => s.setUser)
   const setLoading = useAuthStore((s) => s.setLoading)
   const user = useAuthStore((s) => s.user)
+
+  useSwipeBack()
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['me'],

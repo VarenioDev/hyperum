@@ -199,9 +199,9 @@ export default function Assignment() {
   }
 
   return (
-    <div className="min-h-screen pb-32">
+    <div className="min-h-screen">
       {/* Header */}
-      <header className="glass sticky top-0 z-10">
+      <header className="glass sticky top-0 z-20 safe-top">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between mb-2">
             <button
@@ -245,7 +245,8 @@ export default function Assignment() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-6">
+      {/* Main content */}
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-32">
         {currentTask && (
           <>
             <p className="text-xs text-slate-400 mb-2 text-center">
@@ -290,38 +291,6 @@ export default function Assignment() {
                     {error}
                   </div>
                 )}
-
-                <div className="flex gap-2">
-                  {currentIndex > 0 && (
-                    <button
-                      onClick={goPrev}
-                      disabled={submitMutation.isPending}
-                      className="px-4 bg-white/70 hover:bg-white text-slate-700
-                                 font-medium rounded-2xl transition-colors
-                                 disabled:opacity-50"
-                    >
-                      ←
-                    </button>
-                  )}
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitMutation.isPending}
-                    className="flex-1 bg-hyper text-white font-semibold py-3.5
-                               rounded-2xl shadow-lg shadow-brand-500/30
-                               hover:shadow-xl transition-all disabled:opacity-50"
-                  >
-                    {submitMutation.isPending ? 'Проверяем...' : 'Проверить'}
-                  </button>
-                  <button
-                    onClick={handleSkip}
-                    disabled={submitMutation.isPending}
-                    className="px-4 bg-white/70 hover:bg-white text-slate-500
-                               font-medium rounded-2xl transition-colors
-                               disabled:opacity-50 text-sm"
-                  >
-                    Пропустить
-                  </button>
-                </div>
               </>
             ) : (
               <>
@@ -395,50 +364,91 @@ export default function Assignment() {
                     </p>
                   )}
                 </div>
-
-                {/* Кнопки навигации */}
-                <div className="flex gap-2">
-                  {currentIndex > 0 && (
-                    <button
-                      onClick={goPrev}
-                      className="px-5 bg-white/70 hover:bg-white text-slate-700
-                                 font-medium rounded-2xl transition-colors"
-                    >
-                      ← Назад
-                    </button>
-                  )}
-                  {!isLast && (
-                    <button
-                      onClick={goNext}
-                      className="flex-1 bg-hyper text-white font-semibold py-3.5
-                                 rounded-2xl shadow-lg shadow-brand-500/30
-                                 hover:shadow-xl transition-all"
-                    >
-                      Дальше →
-                    </button>
-                  )}
-                  {isLast && allAnswered && (
-                    <button
-                      onClick={handleFinish}
-                      className="flex-1 bg-hyper text-white font-semibold py-3.5
-                                 rounded-2xl shadow-lg shadow-brand-500/30
-                                 hover:shadow-xl transition-all"
-                    >
-                      🎉 Завершить тест
-                    </button>
-                  )}
-                  {isLast && !allAnswered && (
-                    <div className="flex-1 bg-white/70 rounded-2xl py-3.5 px-4
-                                    text-center text-xs text-slate-500">
-                      Остались непройденные задания — вернись через индикатор
-                    </div>
-                  )}
-                </div>
               </>
             )}
           </>
         )}
       </main>
+
+      {/* Фиксированная нижняя панель действий */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 glass safe-bottom">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          {!currentState?.submitted ? (
+            // Задание не решено
+            <div className="flex gap-2">
+              {currentIndex > 0 && (
+                <button
+                  onClick={goPrev}
+                  disabled={submitMutation.isPending}
+                  className="px-4 py-3 bg-white/70 hover:bg-white text-slate-700
+                             font-medium rounded-2xl transition-colors
+                             disabled:opacity-50"
+                >
+                  ←
+                </button>
+              )}
+              <button
+                onClick={handleSkip}
+                disabled={submitMutation.isPending}
+                className="px-4 py-3 bg-white/70 hover:bg-white text-slate-500
+                           font-medium rounded-2xl transition-colors
+                           disabled:opacity-50 text-sm"
+              >
+                Сдаться
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitMutation.isPending}
+                className="flex-1 bg-hyper text-white font-semibold py-3
+                           rounded-2xl shadow-lg shadow-brand-500/30
+                           hover:shadow-xl transition-all disabled:opacity-50"
+              >
+                {submitMutation.isPending ? 'Проверяем...' : 'Проверить'}
+              </button>
+              
+            </div>
+          ) : (
+            // Задание решено
+            <div className="flex gap-2">
+              {currentIndex > 0 && (
+                <button
+                  onClick={goPrev}
+                  className="px-5 py-3 bg-white/70 hover:bg-white text-slate-700
+                             font-medium rounded-2xl transition-colors"
+                >
+                  ← Назад
+                </button>
+              )}
+              {!isLast && (
+                <button
+                  onClick={goNext}
+                  className="flex-1 bg-hyper text-white font-semibold py-3
+                             rounded-2xl shadow-lg shadow-brand-500/30
+                             hover:shadow-xl transition-all"
+                >
+                  Дальше →
+                </button>
+              )}
+              {isLast && allAnswered && (
+                <button
+                  onClick={handleFinish}
+                  className="flex-1 bg-hyper text-white font-semibold py-3
+                             rounded-2xl shadow-lg shadow-brand-500/30
+                             hover:shadow-xl transition-all"
+                >
+                  🎉 Завершить тест
+                </button>
+              )}
+              {isLast && !allAnswered && (
+                <div className="flex-1 bg-white/70 rounded-2xl py-3 px-4
+                                text-center text-xs text-slate-500">
+                  Остались непройденные — вернись через индикатор
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

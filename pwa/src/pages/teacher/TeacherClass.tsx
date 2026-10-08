@@ -11,6 +11,7 @@ import { getErrorMessage } from '../../api/client'
 import Header from '../../components/Header'
 import InviteCodeBlock from '../../components/teacher/InviteCodeBlock'
 import PendingStudentCard from '../../components/teacher/PendingStudentCard'
+import { useEffect, useRef } from 'react' 
 
 export default function TeacherClass() {
   const { id } = useParams<{ id: string }>()
@@ -113,13 +114,11 @@ export default function TeacherClass() {
 
         <button
           onClick={() => navigate(`/teacher/class/${group.id}/generate`)}
-          className="w-full bg-hyper text-white font-semibold py-4
+          className="w-full bg-hyper text-white font-semibold py-4 px-4
                     rounded-2xl shadow-lg shadow-brand-500/30
                     hover:shadow-xl transition-all"
         >
-          <span className="whitespace-nowrap">
-            ✨ Сгенерировать персональные тесты
-          </span>
+          ✨ Сгенерировать персональные тесты
         </button>
 
         {group.invite_code && (
@@ -189,8 +188,8 @@ export default function TeacherClass() {
 
       {/* Модалка редактирования */}
       {editingStudent && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4 pb-6 sm:pb-4">
-          <div className="glass-strong rounded-3xl w-full max-w-md p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl max-h-[80vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-slate-800">
               Редактировать ФИО
             </h3>
@@ -258,6 +257,27 @@ function StudentRowWithMenu({
   onEdit: () => void
   onRemove: () => void
 }) {
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Закрытие меню по клику вне
+  useEffect(() => {
+    if (!menuOpen) return
+
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onToggleMenu()
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
+  }, [menuOpen, onToggleMenu])
+
   const mastery = student.mastery_avg ?? 0
   const percent = Math.round(mastery * 100)
   const color =
@@ -274,8 +294,9 @@ function StudentRowWithMenu({
       : 'bg-mastery-weak'
 
   return (
-    <div className="relative glass rounded-2xl">
-      <div className="flex items-center gap-3 p-3">
+  <div className="relative rounded-2xl" ref={menuRef}>
+    <div className="absolute inset-0 glass rounded-2xl pointer-events-none" />
+      <div className="relative flex items-center gap-3 p-3">
         <button
           onClick={onOpen}
           className="flex-1 flex items-center gap-3 text-left min-w-0"
