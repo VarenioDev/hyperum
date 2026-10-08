@@ -35,43 +35,54 @@ export default function Assignment() {
   const currentTask: AssignmentTask | undefined = tasks?.[currentIndex]
   const isLast = tasks ? currentIndex === tasks.length - 1 : false
 
-  // Сбросить таймер при смене задания + восстановить ответ из стейта
-  // При загрузке заданий — восстановить прогресс из previous_response
-useEffect(() => {
-  if (!tasks) return
+  // ─── Восстановление прогресса из previous_response ──────
+  useEffect(() => {
+    if (!tasks) return
 
-  const initial: Record<string, TaskState> = {}
-  let firstUnanswered = -1
+    const initial: Record<string, TaskState> = {}
+    let firstUnanswered = -1
 
-  tasks.forEach((t, idx) => {
-    if (t.previous_response) {
-      initial[t.task_id] = {
-        answer: t.previous_response.answer || '',
-        submitted: true,
-        result: {
-          correct: t.previous_response.correct ?? false,
-          expected: t.previous_response.expected,
-          explanation: null,
-          new_mastery: null,
-          skipped: t.previous_response.skipped,
-        },
+    tasks.forEach((t, idx) => {
+      if (t.previous_response) {
+        initial[t.task_id] = {
+          answer: t.previous_response.answer || '',
+          submitted: true,
+          result: {
+            correct: t.previous_response.correct ?? false,
+            expected: t.previous_response.expected,
+            explanation: null,
+            new_mastery: null,
+            skipped: t.previous_response.skipped,
+          },
+        }
+      } else if (firstUnanswered === -1) {
+        firstUnanswered = idx
       }
-    } else if (firstUnanswered === -1) {
-      firstUnanswered = idx
+    })
+
+    setTaskStates(initial)
+
+    // Открыть первое нерешённое (или последнее, если всё решено)
+    if (firstUnanswered !== -1) {
+      setCurrentIndex(firstUnanswered)
+    } else {
+      setCurrentIndex(tasks.length - 1)
     }
-  })
+  }, [tasks])
 
-  setTaskStates(initial)
-
-  // Открыть первое нерешённое (или последнее, если всё решено)
-  if (firstUnanswered !== -1) {
-    setCurrentIndex(firstUnanswered)
-  } else {
-    setCurrentIndex(tasks.length - 1)
-  }
-}, [tasks])
-
-  
+  // ─── Сброс поля ответа при смене задания ────────────────
+  useEffect(() => {
+    startTimeRef.current = Date.now()
+    if (currentTask) {
+      const state = taskStates[currentTask.task_id]
+      // Если задание уже отправлено — показываем сохранённый ответ.
+      // Иначе — поле пустое, чтобы не тащить прошлый ответ.
+      setAnswer(state?.submitted ? (state?.answer || '') : '')
+    } else {
+      setAnswer('')
+    }
+    setError('')
+  }, [currentIndex, currentTask?.task_id, taskStates])
 
   const submitMutation = useMutation({
     mutationFn: submitResponse,
@@ -92,10 +103,11 @@ useEffect(() => {
 
   const currentState = currentTask ? taskStates[currentTask.task_id] : null
 
-  // Прогресс
+  // ─── Прогресс ──────────────────────────────────────────
   const progressStats = useMemo(() => {
     if (!tasks) return { solved: 0, skipped: 0, total: 0 }
-    let solved = 0, skipped = 0
+    let solved = 0
+    let skipped = 0
     for (const t of tasks) {
       const st = taskStates[t.task_id]
       if (st?.submitted && !st.result?.skipped) solved++
@@ -104,7 +116,7 @@ useEffect(() => {
     return { solved, skipped, total: tasks.length }
   }, [tasks, taskStates])
 
-  // ─── Действия ────────────────────────────────────────
+  // ─── Действия ──────────────────────────────────────────
 
   const handleSubmit = () => {
     if (!currentTask) return
@@ -146,7 +158,7 @@ useEffect(() => {
   const allAnswered =
     tasks && tasks.every((t) => taskStates[t.task_id]?.submitted)
 
-  // ─── Рендер ──────────────────────────────────────────
+  // ─── Рендер ────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -161,8 +173,10 @@ useEffect(() => {
       <div className="min-h-screen flex flex-col items-center justify-center p-6">
         <div className="text-5xl mb-4">😕</div>
         <p className="text-slate-700 mb-2">Не удалось загрузить задания</p>
-        <button onClick={() => navigate('/dashboard')}
-          className="text-brand-600 hover:underline text-sm mt-2">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="text-brand-600 hover:underline text-sm mt-2"
+        >
           ← Вернуться на главную
         </button>
       </div>
@@ -174,8 +188,10 @@ useEffect(() => {
       <div className="min-h-screen flex flex-col items-center justify-center p-6">
         <div className="text-5xl mb-4">📭</div>
         <p className="text-slate-700 mb-2">В этом тесте нет заданий</p>
-        <button onClick={() => navigate('/dashboard')}
-          className="text-brand-600 hover:underline text-sm mt-2">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="text-brand-600 hover:underline text-sm mt-2"
+        >
           ← Вернуться на главную
         </button>
       </div>
@@ -218,7 +234,9 @@ useEffect(() => {
                   onClick={() => goTo(idx)}
                   className={`h-1.5 rounded-full transition-all ${
                     isCurrent ? 'w-8' : 'w-4'
-                  } ${bg} ${isCurrent ? 'ring-2 ring-brand-400 ring-offset-1' : ''}`}
+                  } ${bg} ${
+                    isCurrent ? 'ring-2 ring-brand-400 ring-offset-1' : ''
+                  }`}
                   aria-label={`Задание ${idx + 1}`}
                 />
               )
@@ -348,24 +366,32 @@ useEffect(() => {
                         <span className="text-slate-500">Ваш ответ:</span>{' '}
                         <strong>{currentState.answer || '—'}</strong>
                       </p>
-                      {!currentState.result?.correct && currentState.result?.expected && (
-                        <p>
-                          <span className="text-slate-500">Правильный ответ:</span>{' '}
-                          <strong>{currentState.result.expected}</strong>
-                        </p>
-                      )}
+                      {!currentState.result?.correct &&
+                        currentState.result?.expected && (
+                          <p>
+                            <span className="text-slate-500">
+                              Правильный ответ:
+                            </span>{' '}
+                            <strong>{currentState.result.expected}</strong>
+                          </p>
+                        )}
                       {currentState.result?.new_mastery !== null &&
-                       currentState.result?.new_mastery !== undefined && (
-                        <p className="text-xs text-slate-500 pt-2 border-t border-slate-200 mt-2">
-                          Уровень освоения навыка: {Math.round((currentState.result.new_mastery || 0) * 100)}%
-                        </p>
-                      )}
+                        currentState.result?.new_mastery !== undefined && (
+                          <p className="text-xs text-slate-500 pt-2 border-t border-slate-200 mt-2">
+                            Уровень освоения навыка:{' '}
+                            {Math.round(
+                              (currentState.result.new_mastery || 0) * 100
+                            )}
+                            %
+                          </p>
+                        )}
                     </div>
                   )}
 
                   {currentState.result?.skipped && (
                     <p className="text-xs text-slate-500">
-                      Ты можешь вернуться к этому заданию позже через индикатор сверху.
+                      Ты можешь вернуться к этому заданию позже через индикатор
+                      сверху.
                     </p>
                   )}
                 </div>

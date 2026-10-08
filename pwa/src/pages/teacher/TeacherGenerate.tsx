@@ -17,7 +17,7 @@ export default function TeacherGenerate() {
   const navigate = useNavigate()
 
   const [topic, setTopic] = useState<string>('')
-  const [nTasks, setNTasks] = useState<number>(5)
+  const [nTasks, setNTasks] = useState<number | ''>(5)
   const [title, setTitle] = useState<string>('')
   const [generated, setGenerated] = useState<GeneratedTest | null>(null)
   const [savedId, setSavedId] = useState<string | null>(null)
@@ -91,10 +91,10 @@ export default function TeacherGenerate() {
     return
   }
   generateMutation.mutate({
-    group_id: id!,           // ← было class_name: group.name
-    topic,
-    n_tasks: nTasks,
-  })
+      group_id: id!,
+      topic,
+      n_tasks: typeof nTasks === 'number' ? nTasks : 5,
+    })
 }
 
   const handleSave = () => {
@@ -175,7 +175,10 @@ export default function TeacherGenerate() {
               value={nTasks}
               min={1}
               max={15}
-              onChange={(e) => setNTasks(Number(e.target.value))}
+              onChange={(e) => {
+                const v = e.target.value
+                setNTasks(v === '' ? '' : Number(v))
+              }}
               className="w-full px-4 py-3 bg-white/70 border border-white/80
                          rounded-2xl text-base
                          focus:outline-none focus:ring-2 focus:ring-brand-400

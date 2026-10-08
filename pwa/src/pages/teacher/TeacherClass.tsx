@@ -5,7 +5,6 @@ import {
   getGroupDetail,
   updateStudentName,
   removeStudentFromGroup,
-  approveStudent,
   type StudentBrief,
 } from '../../api/groups'
 import { getErrorMessage } from '../../api/client'
@@ -46,14 +45,6 @@ export default function TeacherClass() {
       queryClient.invalidateQueries({ queryKey: ['group', id] })
       queryClient.invalidateQueries({ queryKey: ['groups'] })
       setMenuOpen(null)
-    },
-  })
-
-  const approveMutation = useMutation({
-    mutationFn: (sid: string) => approveStudent(id!, sid),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group', id] })
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
     },
   })
 
@@ -123,12 +114,12 @@ export default function TeacherClass() {
         <button
           onClick={() => navigate(`/teacher/class/${group.id}/generate`)}
           className="w-full bg-hyper text-white font-semibold py-4
-                     rounded-2xl shadow-lg shadow-brand-500/30
-                     hover:shadow-xl transition-all flex items-center
-                     justify-center gap-2"
+                    rounded-2xl shadow-lg shadow-brand-500/30
+                    hover:shadow-xl transition-all"
         >
-          <span>✨</span>
-          Сгенерировать персональные тесты
+          <span className="whitespace-nowrap">
+            ✨ Сгенерировать персональные тесты
+          </span>
         </button>
 
         {group.invite_code && (
@@ -198,8 +189,8 @@ export default function TeacherClass() {
 
       {/* Модалка редактирования */}
       {editingStudent && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="glass-strong rounded-3xl w-full max-w-md p-6 space-y-4">
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4 pb-6 sm:pb-4">
+          <div className="glass-strong rounded-3xl w-full max-w-md p-6 space-y-4 max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-slate-800">
               Редактировать ФИО
             </h3>

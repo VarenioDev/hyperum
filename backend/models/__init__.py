@@ -39,3 +39,8 @@ from backend.models.groups import (
     GroupCreate, GroupResponse, GroupDetail, StudentBrief,
     GroupByCode, JoinRequest, JoinResponse, ApproveResponse,
 )
+
+from backend.models.demo import (
+    DemoStartRequest, DemoStartResponse, DemoTask,
+    DemoResponseRequest, DemoResponseResult,
+)

@@ -17,6 +17,7 @@ from backend.api import graph as graph_router
 from backend.api import assignments as assignments_router
 from backend.api import responses as responses_router 
 from backend.api import groups as groups_router
+from backend.api import demo as demo_router
 
 from backend.config import settings
 from backend.db import postgres, neo4j
@@ -84,6 +85,7 @@ app.include_router(graph_router.router, prefix="/api/v1")
 app.include_router(assignments_router.router, prefix="/api/v1")
 app.include_router(responses_router.router, prefix="/api/v1")
 app.include_router(groups_router.router, prefix="/api/v1")
+app.include_router(demo_router.router, prefix="/api/v1")
 
 @app.get("/debug/tenant-test", tags=["system"])
 async def tenant_test():
