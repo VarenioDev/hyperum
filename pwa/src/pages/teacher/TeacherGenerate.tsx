@@ -196,41 +196,44 @@ export default function TeacherGenerate() {
 
           {/* Кнопка генерации — с анимацией и прогрессом */}
           {generateMutation.isPending ? (
-            <div className="space-y-3">
-              <button
-                disabled
-                className="btn-loading w-full font-semibold py-3.5
-                           rounded-2xl transition-all"
-              >
-                <span>Генерируем...</span>
-              </button>
-              <div>
-                <div className="progress-bar">
-                  <div
-                    className="progress-bar__fill"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-500 text-center mt-2">
-                  {progress < 30 && 'Подбираем задания по графу знаний...'}
-                  {progress >= 30 && progress < 60 && 'Проверяем prerequisite...'}
-                  {progress >= 60 && progress < 90 && 'Распределяем diversity...'}
-                  {progress >= 90 && 'Финальная сборка...'}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={handleGenerate}
-              disabled={isBusy || !topic}
-              className="w-full bg-hyper text-white font-semibold py-3.5
-                         rounded-2xl shadow-lg shadow-brand-500/30
-                         hover:shadow-xl transition-all
-                         disabled:opacity-50 disabled:shadow-none"
-            >
-              ✨ Сгенерировать
-            </button>
-          )}
+  <div className="space-y-3">
+    <button
+      disabled
+      className="btn-loading w-full font-semibold py-3.5
+                 rounded-2xl transition-all"
+    >
+      <span className="sparkle-container text-lg leading-none">
+        <span className="sparkle">✨</span>
+      </span>
+      <span>Генерируем...</span>
+    </button>
+    <div>
+      <div className="progress-bar">
+        <div
+          className="progress-bar__fill"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="text-xs text-slate-500 text-center mt-2">
+        {progress < 30 && 'Подбираем задания по графу знаний...'}
+        {progress >= 30 && progress < 60 && 'Проверяем prerequisite...'}
+        {progress >= 60 && progress < 90 && 'Распределяем diversity...'}
+        {progress >= 90 && 'Финальная сборка...'}
+      </p>
+    </div>
+  </div>
+) : (
+  <button
+    onClick={handleGenerate}
+    disabled={isBusy || !topic}
+    className="w-full bg-hyper text-white font-semibold py-3.5
+               rounded-2xl shadow-lg shadow-brand-500/30
+               hover:shadow-xl transition-all
+               disabled:opacity-50 disabled:shadow-none"
+  >
+    ✨ Сгенерировать
+  </button>
+)}
         </div>
 
         {/* Превью сгенерированного теста */}

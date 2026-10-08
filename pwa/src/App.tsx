@@ -14,6 +14,8 @@ import TeacherDashboard from './pages/teacher/TeacherDashboard'
 import TeacherClass from './pages/teacher/TeacherClass'
 import TeacherGenerate from './pages/teacher/TeacherGenerate'
 import { useSwipeBack } from './hooks/useSwipeBack'
+import Landing from './pages/Landing'
+import DemoTest from './pages/DemoTest'
 
 function App() {
   const setUser = useAuthStore((s) => s.setUser)
@@ -115,9 +117,14 @@ function App() {
         }
       />
 
-      {/* Редиректы */}
-      <Route path="/" element={<Navigate to={homeRedirect()} replace />} />
-      <Route path="*" element={<Navigate to={homeRedirect()} replace />} />
+      {/* Лендинг — публичный */}
+<Route path="/" element={<Landing />} />
+
+{/* Демо */}
+<Route path="/demo/test" element={<DemoTest />} />
+
+{/* Редиректы */}
+<Route path="*" element={<Navigate to={homeRedirect()} replace />} />
     </Routes>
   )
 }

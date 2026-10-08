@@ -90,10 +90,6 @@ export default function Graph() {
           </div>
         </div>
 
-        {/* Подсказка */}
-        <p className="text-xs text-slate-500 text-center">
-          Тапните на узел, чтобы увидеть детали. Граф можно масштабировать.
-        </p>
 
         {/* Граф */}
                 {/* Переключатель неизученных */}

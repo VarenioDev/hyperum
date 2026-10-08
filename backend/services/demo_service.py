@@ -96,12 +96,12 @@ PARSE_PROMPT = """Ты — методист по информатике. Сту�
 3. 3-7 навыков (skill_id), которые студент НЕ знает.
 
 Верни JSON строго:
-{
+{{
   "topic": "Название темы (точно как в таксономии)",
-  "skills_known": ["s_xxx", ...],
-  "skills_unknown": ["s_yyy", ...],
-  "reasoning": "Краткое пояснение (1-2 предложения)"
-}"""
+  "skills_known": ["s_xxx"],
+  "skills_unknown": ["s_yyy"],
+  "reasoning": "Краткое пояснение"
+}}"""
 
 
 def _load_taxonomy_text(session: Session) -> tuple[str, list[str]]:
