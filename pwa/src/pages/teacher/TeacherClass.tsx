@@ -336,20 +336,27 @@ function StudentRowWithMenu({
   onEdit: () => void
   onRemove: () => void
 }) {
-  const mastery = student.mastery_avg ?? 0
-  const percent = Math.round(mastery * 100)
-  const color =
-    mastery >= 0.8
-      ? 'text-mastery-strong'
-      : mastery >= 0.5
-      ? 'text-mastery-medium'
-      : 'text-mastery-weak'
-  const bgColor =
-    mastery >= 0.8
-      ? 'bg-mastery-strong'
-      : mastery >= 0.5
-      ? 'bg-mastery-medium'
-      : 'bg-mastery-weak'
+  // Логика отображения статуса
+  const hasActive = student.active_assignments > 0
+  const hasCompleted = student.last_completed_score !== null
+  const isSilent =
+    student.days_since_activity !== null && student.days_since_activity >= 3
+
+  let icon = '⏳'
+  let mainText = 'Ещё не решал'
+  let subText: string | null = null
+
+  if (hasActive) {
+    icon = '🎯'
+    mainText = `${student.active_assignments} ${student.active_assignments === 1 ? 'тест' : 'тестов'} не завершено`
+    if (isSilent) {
+      subText = `⏰ ${student.days_since_activity} дней не заходил`
+    }
+  } else if (hasCompleted) {
+    icon = '✅'
+    mainText = 'Все тесты пройдены'
+    subText = `Последний: ${student.last_completed_score}`
+  }
 
   return (
     <div className="relative rounded-2xl">
@@ -359,27 +366,22 @@ function StudentRowWithMenu({
           onClick={onOpen}
           className="flex-1 flex items-center gap-3 text-left min-w-0"
         >
+          <span className="text-2xl shrink-0">{icon}</span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-800 truncate">
               {student.full_name}
             </p>
-            {student.mastery_avg === null && (
-              <p className="text-xs text-slate-400 mt-0.5">Ещё не решал</p>
-            )}
+            <p
+              className={`text-xs mt-0.5 truncate ${
+                isSilent && hasActive
+                  ? 'text-red-500 font-medium'
+                  : 'text-slate-500'
+              }`}
+            >
+              {mainText}
+              {subText && <span className="text-slate-400"> · {subText}</span>}
+            </p>
           </div>
-          {student.mastery_avg !== null && (
-            <>
-              <div className="w-20 bg-white/60 rounded-full h-1.5 overflow-hidden shrink-0">
-                <div
-                  className={`${bgColor} h-full rounded-full`}
-                  style={{ width: `${percent}%` }}
-                />
-              </div>
-              <span className={`text-sm font-semibold w-10 text-right shrink-0 ${color}`}>
-                {percent}%
-              </span>
-            </>
-          )}
         </button>
         <button
           onClick={onToggleMenu}

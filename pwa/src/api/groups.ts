@@ -23,6 +23,10 @@ export interface StudentBrief {
   status: 'active' | 'pending' | 'blocked'
   mastery_avg: number | null
   joined_at: string | null
+  active_assignments: number
+  last_completed_title: string | null
+  last_completed_score: string | null
+  days_since_activity: number | null
 }
 
 export interface GroupDetail extends Group {

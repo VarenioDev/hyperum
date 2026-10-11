@@ -95,15 +95,62 @@ def get_group_detail(
         return None
 
     students = session.execute(text("""
-        SELECT u.id, u.full_name, u.email, m.status, m.joined_at,
-               ROUND(AVG(sm.mastery)::numeric, 2) AS avg_mastery
-        FROM memberships m
-        JOIN users u ON u.id = m.user_id
-        LEFT JOIN student_mastery sm ON sm.student_id = u.id
-        WHERE m.group_id = :gid AND m.role = 'student'
-          AND m.status != 'rejected'
-        GROUP BY u.id, u.full_name, u.email, m.status, m.joined_at
-        ORDER BY m.status DESC, u.full_name
+        WITH base AS (
+            SELECT u.id, u.full_name, u.email, m.status, m.joined_at,
+                   ROUND(AVG(sm.mastery)::numeric, 2) AS avg_mastery
+            FROM memberships m
+            JOIN users u ON u.id = m.user_id
+            LEFT JOIN student_mastery sm ON sm.student_id = u.id
+            WHERE m.group_id = :gid AND m.role = 'student'
+              AND m.status != 'rejected'
+            GROUP BY u.id, u.full_name, u.email, m.status, m.joined_at
+        )
+        SELECT
+            b.id, b.full_name, b.email, b.status, b.joined_at, b.avg_mastery,
+            -- Активные тесты
+            (SELECT COUNT(*) FROM assignment_students ast2
+             JOIN assignments a2 ON a2.id = ast2.assignment_id
+             WHERE ast2.student_id = b.id
+               AND ast2.status != 'completed'
+               AND a2.status = 'sent'
+            ) AS active_assignments,
+            -- Последний пройденный тест (title)
+            (SELECT a3.title FROM assignment_students ast3
+             JOIN assignments a3 ON a3.id = ast3.assignment_id
+             WHERE ast3.student_id = b.id AND ast3.status = 'completed'
+             ORDER BY ast3.completed_at DESC NULLS LAST
+             LIMIT 1
+            ) AS last_completed_title,
+            -- Результат последнего пройденного теста
+            (SELECT
+                (SELECT COUNT(DISTINCT r.task_id) FROM responses r
+                 JOIN assignment_tasks at
+                   ON at.task_id = r.task_id
+                  AND at.assignment_id = ast3.assignment_id
+                 WHERE at.student_id = ast3.student_id
+                   AND r.student_id = ast3.student_id
+                   AND r.correct = TRUE
+                   AND r.created_at >= COALESCE(
+                       (SELECT sent_at FROM assignments WHERE id = ast3.assignment_id),
+                       '1970-01-01'::timestamptz
+                   )
+                )::text
+                || '/'
+                || (SELECT COUNT(*) FROM assignment_tasks
+                    WHERE assignment_id = ast3.assignment_id
+                      AND student_id = ast3.student_id)::text
+             FROM assignment_students ast3
+             WHERE ast3.student_id = b.id AND ast3.status = 'completed'
+             ORDER BY ast3.completed_at DESC NULLS LAST
+             LIMIT 1
+            ) AS last_completed_score,
+            -- Дней с последней активности
+            (SELECT EXTRACT(DAY FROM (now() - MAX(r.created_at)))::int
+             FROM responses r
+             WHERE r.student_id = b.id
+            ) AS days_since_activity
+        FROM base b
+        ORDER BY b.status DESC, b.full_name
     """), {"gid": str(group_id)}).fetchall()
 
     return {
@@ -116,6 +163,10 @@ def get_group_detail(
                 "id": s[0], "full_name": s[1], "email": s[2],
                 "status": s[3], "joined_at": s[4],
                 "mastery_avg": float(s[5]) if s[5] is not None else None,
+                "active_assignments": int(s[6] or 0),
+                "last_completed_title": s[7],
+                "last_completed_score": s[8],
+                "days_since_activity": int(s[9]) if s[9] is not None else None,
             }
             for s in students
         ],

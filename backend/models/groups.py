@@ -42,6 +42,10 @@ class StudentBrief(BaseModel):
     status: str = "active"
     mastery_avg: float | None = None
     joined_at: datetime | None = None
+    active_assignments: int = 0
+    last_completed_title: str | None = None
+    last_completed_score: str | None = None
+    days_since_activity: int | None = None
 
 
 class GroupDetail(GroupResponse):
