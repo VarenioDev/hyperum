@@ -5,6 +5,7 @@ import { api } from './client'
 
 export interface SubmitResponsePayload {
   task_id: string
+  assignment_id?: string
   answer: string
   time_sec?: number
   skipped?: boolean

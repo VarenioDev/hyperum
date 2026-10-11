@@ -1,6 +1,7 @@
 """
 Бизнес-логика ответов учеников.
-Проверка через ingest.normalize, обновление mastery, sync в Neo4j.
+Проверка через ingest.normalize, обновление mastery, sync в Neo4j,
+автозакрытие assignment.
 """
 import math
 from uuid import UUID
@@ -16,52 +17,6 @@ from backend.db.neo4j import neo4j_session
 PRIOR = 0.5       # сглаживание к среднему при малом числе попыток
 WEIGHT = 3.0      # «вес» prior'а (сколько виртуальных попыток)
 
-
-def _mark_assignment_completed_if_done(
-    session: Session,
-    tenant_id: str,
-    student_id: UUID | str,
-    task_id: UUID | str,
-) -> None:
-    """
-    Проверяет, все ли задания текущего assignment покрыты ответами,
-    и если да — ставит status='completed'.
-    """
-    # Находим assignment по task_id и student_id
-    row = session.execute(text("""
-        SELECT at.assignment_id
-        FROM assignment_tasks at
-        WHERE at.task_id = :tid AND at.student_id = :sid
-        LIMIT 1
-    """), {"tid": str(task_id), "sid": str(student_id)}).fetchone()
-
-    if not row:
-        return
-
-    assignment_id = row[0]
-
-    # Сколько заданий всего и сколько покрыто
-    stats = session.execute(text("""
-        SELECT
-            (SELECT COUNT(*) FROM assignment_tasks
-             WHERE assignment_id = :aid AND student_id = :sid) AS total,
-            (SELECT COUNT(DISTINCT r.task_id) FROM responses r
-             JOIN assignment_tasks at
-               ON at.task_id = r.task_id AND at.assignment_id = :aid
-             WHERE at.student_id = :sid
-               AND r.student_id = :sid
-               AND (r.correct IS NOT NULL OR r.skipped = TRUE)
-            ) AS done
-    """), {"aid": str(assignment_id), "sid": str(student_id)}).fetchone()
-
-    if stats and stats[0] > 0 and stats[0] == stats[1]:
-        session.execute(text("""
-            UPDATE assignment_students
-            SET status = 'completed', completed_at = now()
-            WHERE assignment_id = :aid
-              AND student_id = :sid
-              AND status != 'completed'
-        """), {"aid": str(assignment_id), "sid": str(student_id)})
 
 def _smoothed_mastery(correct: float, attempts: float) -> float:
     """
@@ -110,9 +65,7 @@ def save_response(
     correct: bool,
     time_sec: int | None = None,
 ) -> str:
-    """
-    Записать ответ в БД. Возвращает UUID ответа.
-    """
+    """Записать ответ в БД. Возвращает UUID ответа."""
     response_id = session.execute(text("""
         INSERT INTO responses
             (tenant_id, student_id, task_id, answer, correct, time_sec)
@@ -154,8 +107,7 @@ def update_mastery(
       - secondary-навык задания → вес 0.7
 
     Mastery считается по взвешенным attempts/correct.
-    В student_mastery пишутся «сырые» attempts/correct — для честного
-    отображения в UI («3 из 5»), а не взвешенные.
+    В student_mastery пишутся «сырые» attempts/correct — для отображения.
     """
     # Взвешенные значения для расчёта mastery
     weighted_row = session.execute(text("""
@@ -231,13 +183,11 @@ def sync_mastery_to_neo4j(
     """
     try:
         with neo4j_session() as session:
-            # Узел Student — создаём если нет
             session.run("""
                 MERGE (st:Student {id: $sid})
                 SET st.tenant_id = 'school_lyceum'
             """, sid=str(student_id))
 
-            # Ребро MASTERY
             session.run("""
                 MATCH (st:Student {id: $sid})
                 MATCH (sk:Skill {id: $skill})
@@ -253,6 +203,45 @@ def sync_mastery_to_neo4j(
         pass
 
 
+# ─── Автозакрытие assignment ─────────────────────────────────
+
+def _mark_assignment_completed_if_done(
+    session: Session,
+    tenant_id: str,
+    student_id: UUID | str,
+    assignment_id: UUID | str,
+) -> None:
+    """
+    Проверяет, все ли задания assignment покрыты ответами
+    (с момента отправки теста), и если да — ставит completed.
+    """
+    stats = session.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM assignment_tasks
+             WHERE assignment_id = :aid AND student_id = :sid) AS total,
+            (SELECT COUNT(DISTINCT r.task_id) FROM responses r
+             JOIN assignment_tasks at
+               ON at.task_id = r.task_id AND at.assignment_id = :aid
+             WHERE at.student_id = :sid
+               AND r.student_id = :sid
+               AND (r.correct IS NOT NULL OR r.skipped = TRUE)
+               AND r.created_at >= COALESCE(
+                   (SELECT sent_at FROM assignments WHERE id = :aid),
+                   '1970-01-01'::timestamptz
+               )
+            ) AS done
+    """), {"aid": str(assignment_id), "sid": str(student_id)}).fetchone()
+
+    if stats and stats[0] > 0 and stats[0] == stats[1]:
+        session.execute(text("""
+            UPDATE assignment_students
+            SET status = 'completed', completed_at = now()
+            WHERE assignment_id = :aid
+              AND student_id = :sid
+              AND status != 'completed'
+        """), {"aid": str(assignment_id), "sid": str(student_id)})
+
+
 # ─── Полный цикл: приём ответа ───────────────────────────────
 
 def submit_response(
@@ -261,10 +250,15 @@ def submit_response(
     student_id: UUID | str,
     task_id: UUID | str,
     answer: str,
+    assignment_id: UUID | str | None = None,
     time_sec: int | None = None,
     skipped: bool = False,
     surrendered: bool = False,
 ) -> dict | None:
+    """
+    Полный цикл: проверка + сохранение + обновление mastery + автозакрытие.
+    Возвращает словарь с результатом или None, если задание не найдено.
+    """
     # Проверка, что задание существует
     check = session.execute(text("""
         SELECT 1 FROM tasks WHERE id = :tid
@@ -272,11 +266,12 @@ def submit_response(
     if not check:
         return None
 
-    # Если это пропуск — не проверяем, не обновляем mastery
+    # ─── Пропуск / сдача ─────────────────────────────────
     if skipped:
         response_id = session.execute(text("""
             INSERT INTO responses
-                (tenant_id, student_id, task_id, answer, correct, time_sec, skipped, surrendered)
+                (tenant_id, student_id, task_id, answer, correct, time_sec,
+                 skipped, surrendered)
             VALUES
                 (:t, :s, :task, '', NULL, :time, TRUE, :surr)
             RETURNING id
@@ -286,6 +281,11 @@ def submit_response(
             "surr": surrendered,
         }).scalar()
 
+        if assignment_id:
+            _mark_assignment_completed_if_done(
+                session, tenant_id, student_id, assignment_id
+            )
+
         return {
             "response_id": str(response_id),
             "correct": False,
@@ -294,7 +294,7 @@ def submit_response(
             "skipped": True,
         }
 
-    # Обычная логика (проверка + сохранение + mastery)
+    # ─── Обычный ответ ───────────────────────────────────
     result = check_answer(session, task_id, answer)
     if result is None:
         return None
@@ -309,14 +309,21 @@ def submit_response(
     for skill_id in skill_ids:
         m = update_mastery(session, tenant_id, student_id, skill_id)
         if new_mastery is None:
-            new_mastery = m  # первый = primary (или просто первый)
+            new_mastery = m  # первый = primary
         stats = session.execute(text("""
             SELECT attempts, correct FROM student_mastery
             WHERE tenant_id = :t AND student_id = :s AND skill_id = :sk
         """), {"t": tenant_id, "s": str(student_id), "sk": skill_id}).fetchone()
         if stats:
-            sync_mastery_to_neo4j(student_id, skill_id, m, stats[0], stats[1])
-    _mark_assignment_completed_if_done(session, tenant_id, student_id, task_id)
+            sync_mastery_to_neo4j(
+                student_id, skill_id, m, stats[0], stats[1]
+            )
+
+    # Автозакрытие
+    if assignment_id:
+        _mark_assignment_completed_if_done(
+            session, tenant_id, student_id, assignment_id
+        )
 
     return {
         "response_id": response_id,
@@ -335,8 +342,13 @@ def list_my_responses(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
+    """
+    История ответов ученика.
+    Один ответ — одна строка (берём primary-навык, чтобы не было дублей).
+    """
     rows = session.execute(text("""
-        SELECT r.id, r.task_id, t.code, t.text, t.answer,
+        SELECT DISTINCT ON (r.id)
+               r.id, r.task_id, t.code, t.text, t.answer,
                r.answer, r.correct, r.skipped, r.time_sec, r.created_at,
                a.title AS assignment_title,
                s.name AS skill_name
@@ -346,14 +358,17 @@ def list_my_responses(
           ON at.task_id = r.task_id AND at.student_id = r.student_id
         LEFT JOIN assignments a ON a.id = at.assignment_id
         LEFT JOIN task_labels tl
-          ON tl.task_id = r.task_id AND tl.model = 'deepseek'
+          ON tl.task_id = r.task_id
+         AND tl.model = 'deepseek'
+         AND tl.is_primary = TRUE
         LEFT JOIN skills s ON s.id = tl.skill_id
         WHERE r.student_id = :sid
-        ORDER BY r.created_at DESC
+        ORDER BY r.id, r.created_at DESC
         LIMIT :lim OFFSET :off
     """), {"sid": str(student_id), "lim": limit, "off": offset}).fetchall()
 
-    return [
+    # После DISTINCT ON (r.id) — сортировка по дате
+    result = [
         {
             "id": r[0], "task_id": r[1], "code": r[2],
             "task_text": r[3], "expected": r[4],
@@ -363,6 +378,8 @@ def list_my_responses(
         }
         for r in rows
     ]
+    result.sort(key=lambda x: x["created_at"], reverse=True)
+    return result
 
 
 def task_stats(session: Session, task_id: UUID | str) -> dict | None:
@@ -387,6 +404,7 @@ def task_stats(session: Session, task_id: UUID | str) -> dict | None:
     skill_row = session.execute(text("""
         SELECT skill_id FROM task_labels
         WHERE task_id = :tid AND model = 'deepseek'
+        ORDER BY is_primary DESC
         LIMIT 1
     """), {"tid": str(task_id)}).fetchone()
 
@@ -405,11 +423,7 @@ def assignment_progress(
     assignment_id: UUID | str,
     teacher_id: UUID | str,
 ) -> dict | None:
-    """
-    Прогресс по назначению.
-    Только для автора назначения.
-    """
-    # Проверка владельца
+    """Прогресс по назначению. Только для автора."""
     row = session.execute(text("""
         SELECT created_by, title FROM assignments WHERE id = :aid
     """), {"aid": str(assignment_id)}).fetchone()
@@ -419,7 +433,6 @@ def assignment_progress(
     if str(row[0]) != str(teacher_id):
         return None
 
-    # Агрегаты
     stats = session.execute(text("""
         SELECT
             (SELECT COUNT(*) FROM assignment_students
@@ -441,11 +454,6 @@ def assignment_progress(
     total_attempts = stats[2] or 0
     total_correct = stats[3] or 0
     correct_rate = total_correct / total_attempts if total_attempts else 0.0
-
-        # Проверяем: все ли задания в assignment покрыты — если да, помечаем completed
-    _mark_assignment_completed_if_done(
-        session, tenant_id, student_id, task_id
-    )
 
     return {
         "assignment_id": str(assignment_id),

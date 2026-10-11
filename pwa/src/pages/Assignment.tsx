@@ -128,6 +128,7 @@ export default function Assignment() {
     const timeSec = Math.round((Date.now() - startTimeRef.current) / 1000)
     submitMutation.mutate({
       task_id: currentTask.task_id,
+      assignment_id: assignmentId!,
       answer: answer.trim(),
       time_sec: timeSec,
     })
@@ -138,6 +139,7 @@ export default function Assignment() {
   const timeSec = Math.round((Date.now() - startTimeRef.current) / 1000)
   submitMutation.mutate({
     task_id: currentTask.task_id,
+    assignment_id: assignmentId!,
     answer: '',
     time_sec: timeSec,
     skipped: true,

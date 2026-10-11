@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class ResponseCreate(BaseModel):
     task_id: UUID
+    assignment_id: UUID | None = Field(None, description="ID текущего теста")
     answer: str = Field("", description="Ответ ученика")
     time_sec: int | None = Field(None, ge=0)
     skipped: bool = Field(False, description="Задание пропущено")
