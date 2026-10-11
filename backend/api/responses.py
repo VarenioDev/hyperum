@@ -40,6 +40,7 @@ async def submit_response(
         tenant_id=user.tenant_id,
         student_id=user.id,
         task_id=payload.task_id,
+        assignment_id=payload.assignment_id,
         answer=payload.answer,
         time_sec=payload.time_sec,
         skipped=payload.skipped,
