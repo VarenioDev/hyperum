@@ -43,6 +43,7 @@ async def submit_response(
         answer=payload.answer,
         time_sec=payload.time_sec,
         skipped=payload.skipped,
+        surrendered=payload.surrendered,
     )
 
     if result is None:

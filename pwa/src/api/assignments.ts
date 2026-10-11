@@ -19,6 +19,7 @@ export interface PreviousResponse {
   answer: string
   correct: boolean | null
   skipped: boolean
+  surrendered: boolean
   time_sec: number | null
   expected: string | null
 }

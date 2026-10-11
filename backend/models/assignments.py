@@ -56,6 +56,7 @@ class PreviousResponse(BaseModel):
     answer: str
     correct: bool | None = None
     skipped: bool = False
+    surrendered: bool = False
     time_sec: int | None = None
     expected: str | None = None
 

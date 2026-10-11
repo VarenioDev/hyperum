@@ -263,6 +263,7 @@ def submit_response(
     answer: str,
     time_sec: int | None = None,
     skipped: bool = False,
+    surrendered: bool = False,
 ) -> dict | None:
     # Проверка, что задание существует
     check = session.execute(text("""
@@ -275,13 +276,14 @@ def submit_response(
     if skipped:
         response_id = session.execute(text("""
             INSERT INTO responses
-                (tenant_id, student_id, task_id, answer, correct, time_sec, skipped)
+                (tenant_id, student_id, task_id, answer, correct, time_sec, skipped, surrendered)
             VALUES
-                (:t, :s, :task, '', NULL, :time, TRUE)
+                (:t, :s, :task, '', NULL, :time, TRUE, :surr)
             RETURNING id
         """), {
             "t": tenant_id, "s": str(student_id),
             "task": str(task_id), "time": time_sec,
+            "surr": surrendered,
         }).scalar()
 
         return {

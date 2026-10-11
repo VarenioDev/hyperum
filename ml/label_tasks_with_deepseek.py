@@ -324,7 +324,8 @@ def save_label(conn, task_id: str, label: BatchTaskLabel) -> None:
 # ─── Основной цикл ─────────────────────────────────────────
 
 def main():
-    with engine.begin() as conn:
+    # Читаем задания без транзакции
+    with engine.connect() as conn:
         total = conn.execute(text("SELECT COUNT(*) FROM tasks")).scalar()
         already = conn.execute(text(
             "SELECT COUNT(DISTINCT task_id) FROM task_labels WHERE model = :m"
@@ -341,27 +342,28 @@ def main():
             ORDER BY t.code
         """), {"m": MODEL_TAG}).fetchall()
 
-        if not tasks:
-            print("Все задания уже размечены.")
-            return
+    if not tasks:
+        print("Все задания уже размечены.")
+        return
 
-        tasks = [{"id": str(r[0]), "code": r[1], "text": r[2]} for r in tasks]
-        n_tasks = len(tasks)
-        n_batches = (n_tasks + BATCH_SIZE - 1) // BATCH_SIZE
+    tasks = [{"id": str(r[0]), "code": r[1], "text": r[2]} for r in tasks]
+    n_tasks = len(tasks)
+    n_batches = (n_tasks + BATCH_SIZE - 1) // BATCH_SIZE
 
-        print(f"К разметке: {n_tasks} заданий, {n_batches} батчей по {BATCH_SIZE}\n")
+    print(f"К разметке: {n_tasks} заданий, {n_batches} батчей по {BATCH_SIZE}\n")
 
-        success = 0
-        fallback = 0
-        failed = 0
+    success = 0
+    fallback = 0
+    failed = 0
 
-        for b_idx in range(n_batches):
-            batch = tasks[b_idx * BATCH_SIZE:(b_idx + 1) * BATCH_SIZE]
-            print(f"─── Батч {b_idx + 1}/{n_batches} "
-                  f"({len(batch)} заданий) ───")
+    for b_idx in range(n_batches):
+        batch = tasks[b_idx * BATCH_SIZE:(b_idx + 1) * BATCH_SIZE]
+        print(f"─── Батч {b_idx + 1}/{n_batches} ({len(batch)} заданий) ───")
 
-            labels = label_batch(batch)
+        labels = label_batch(batch)
 
+        # КАЖДЫЙ БАТЧ — своя транзакция
+        with engine.begin() as conn:
             if len(labels) == len(batch):
                 for task in batch:
                     save_label(conn, task["id"], labels[task["code"]])
@@ -370,23 +372,20 @@ def main():
                           f"(+{len(labels[task['code']].secondary_skills)} sec)")
                     success += 1
             else:
-                # Fallback: размечаем по одному
                 print(f"    Fallback: размечаем по одному")
                 for task in batch:
                     label = label_single(task)
                     if label:
                         save_label(conn, task["id"], label)
-                        print(f"    ✓ {task['code']} → {label.primary_skill} "
-                              f"(single)")
+                        print(f"    ✓ {task['code']} → {label.primary_skill} (single)")
                         success += 1
                         fallback += 1
                     else:
                         print(f"    ✗ {task['code']} — не удалось")
                         failed += 1
 
-            # Пауза между батчами
-            if b_idx < n_batches - 1:
-                time.sleep(SLEEP_BETWEEN_BATCHES)
+        if b_idx < n_batches - 1:
+            time.sleep(SLEEP_BETWEEN_BATCHES)
 
     print(f"\n═══ Итог ═══")
     print(f"Успешно: {success}/{n_tasks}")

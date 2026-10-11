@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class ResponseCreate(BaseModel):
-    """Отправка ответа учеником."""
     task_id: UUID
     answer: str = Field("", description="Ответ ученика")
-    time_sec: int | None = Field(None, ge=0, description="Время решения в секундах")
+    time_sec: int | None = Field(None, ge=0)
     skipped: bool = Field(False, description="Задание пропущено")
+    surrendered: bool = Field(False, description="Ученик сдался (финально)")
 
 
 class ResponseResult(BaseModel):

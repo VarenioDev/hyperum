@@ -23,6 +23,7 @@ export default function Assignment() {
   const [taskStates, setTaskStates] = useState<Record<string, TaskState>>({})
   const [answer, setAnswer] = useState('')
   const [error, setError] = useState('')
+  const [showSurrenderModal, setShowSurrenderModal] = useState(false)
 
   const startTimeRef = useRef<number>(Date.now())
 
@@ -45,16 +46,16 @@ export default function Assignment() {
     tasks.forEach((t, idx) => {
       if (t.previous_response) {
         initial[t.task_id] = {
-          answer: t.previous_response.answer || '',
-          submitted: true,
-          result: {
-            correct: t.previous_response.correct ?? false,
-            expected: t.previous_response.expected,
-            explanation: null,
-            new_mastery: null,
-            skipped: t.previous_response.skipped,
-          },
-        }
+            answer: t.previous_response.answer || '',
+            submitted: true,
+            result: {
+              correct: t.previous_response.correct ?? false,
+              expected: t.previous_response.expected,
+              explanation: null,
+              new_mastery: null,
+              skipped: t.previous_response.skipped,
+            },
+          }
       } else if (firstUnanswered === -1) {
         firstUnanswered = idx
       }
@@ -132,16 +133,18 @@ export default function Assignment() {
     })
   }
 
-  const handleSkip = () => {
-    if (!currentTask) return
-    const timeSec = Math.round((Date.now() - startTimeRef.current) / 1000)
-    submitMutation.mutate({
-      task_id: currentTask.task_id,
-      answer: '',
-      time_sec: timeSec,
-      skipped: true,
-    })
-  }
+  const handleSurrender = () => {
+  if (!currentTask) return
+  const timeSec = Math.round((Date.now() - startTimeRef.current) / 1000)
+  submitMutation.mutate({
+    task_id: currentTask.task_id,
+    answer: '',
+    time_sec: timeSec,
+    skipped: true,
+    surrendered: true,
+  })
+  setShowSurrenderModal(false)
+}
 
   const goNext = () => {
     if (!isLast) setCurrentIndex((i) => i + 1)
@@ -359,8 +362,7 @@ export default function Assignment() {
 
                   {currentState.result?.skipped && (
                     <p className="text-xs text-slate-500">
-                      Ты можешь вернуться к этому заданию позже через индикатор
-                      сверху.
+                      Задание засчитано как нерешённое.
                     </p>
                   )}
                 </div>
@@ -388,11 +390,11 @@ export default function Assignment() {
                 </button>
               )}
               <button
-                onClick={handleSkip}
+                onClick={() => setShowSurrenderModal(true)}
                 disabled={submitMutation.isPending}
                 className="px-4 py-3 bg-white/70 hover:bg-white text-slate-500
-                           font-medium rounded-2xl transition-colors
-                           disabled:opacity-50 text-sm"
+                          font-medium rounded-2xl transition-colors
+                          disabled:opacity-50 text-sm"
               >
                 Сдаться
               </button>
@@ -449,6 +451,42 @@ export default function Assignment() {
           )}
         </div>
       </div>
+      {/* Модалка подтверждения сдачи */}
+{showSurrenderModal && (
+  <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+    <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+      <div className="text-center">
+        <div className="text-5xl mb-3">🤔</div>
+        <h3 className="text-xl font-bold text-slate-800 mb-2">
+          Точно сдаться?
+        </h3>
+        <p className="text-sm text-slate-600">
+          Это задание будет засчитано как нерешённое, и вернуться
+          к нему ты уже не сможешь.
+        </p>
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={() => setShowSurrenderModal(false)}
+          className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700
+                     font-medium py-3 rounded-2xl transition-colors"
+        >
+          Нет, вернуться
+        </button>
+        <button
+          onClick={handleSurrender}
+          disabled={submitMutation.isPending}
+          className="flex-1 bg-red-500 hover:bg-red-600 text-white
+                     font-semibold py-3 rounded-2xl transition-colors
+                     disabled:opacity-50"
+        >
+          Да, сдаться
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   )
 }

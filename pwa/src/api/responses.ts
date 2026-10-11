@@ -8,6 +8,7 @@ export interface SubmitResponsePayload {
   answer: string
   time_sec?: number
   skipped?: boolean
+  surrendered?: boolean
 }
 
 export interface ResponseResult {

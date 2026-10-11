@@ -438,11 +438,15 @@ def get_assignment_tasks(
         FROM assignment_tasks at
         JOIN tasks t ON t.id = at.task_id
         LEFT JOIN LATERAL (
-            SELECT answer, correct, skipped, time_sec
-            FROM responses
-            WHERE task_id = at.task_id
-              AND student_id = at.student_id
-            ORDER BY created_at DESC
+            SELECT r.answer, r.correct, r.skipped, r.time_sec, r.surrendered
+            FROM responses r
+            WHERE r.task_id = at.task_id
+            AND r.student_id = at.student_id
+            AND r.created_at >= COALESCE(
+                (SELECT sent_at FROM assignments WHERE id = :aid),
+                '1970-01-01'::timestamptz
+            )
+            ORDER BY r.created_at DESC
             LIMIT 1
         ) r ON TRUE
         WHERE at.assignment_id = :aid AND at.student_id = :sid
@@ -463,6 +467,7 @@ def get_assignment_tasks(
                 "answer": r[7] or "",
                 "correct": r[8],
                 "skipped": r[9] or False,
+                "surrendered": r[11] or False,
                 "time_sec": r[10],
                 "expected": r[6],
             }
