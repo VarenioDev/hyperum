@@ -1,13 +1,20 @@
 """
-Автоматическая разметка заданий через DeepSeek API (HTTP, без SDK).
+Автоматическая разметка заданий через DeepSeek API.
+Multi-skill (primary + 0-2 secondary) + батчинг.
+
+Использование:
+    python -m ml.label_tasks_with_deepseek
 """
 import json
 import os
 import re
+import time
 from pathlib import Path
+
 import requests
 import yaml
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import create_engine, text
 
 load_dotenv()
@@ -21,10 +28,31 @@ API_URL = "https://api.deepseek.com/chat/completions"
 MODEL_API = "deepseek-chat"
 MODEL_TAG = "deepseek"
 
+# ─── Параметры батчинга ─────────────────────────────────────
+BATCH_SIZE = 10                 # заданий за один запрос
+MAX_RETRIES = 2                 # попыток на батч
+SLEEP_BETWEEN_BATCHES = 0.5     # сек между запросами
+SLEEP_BETWEEN_RETRIES = 2.0     # сек между retry
+
 engine = create_engine(DB_URL)
 
 
-# ─── Загрузка таксономии ─────────────────────────────────────
+# ─── Схемы ответа ──────────────────────────────────────────
+
+class BatchTaskLabel(BaseModel):
+    task_code: str
+    primary_skill: str
+    secondary_skills: list[str] = Field(default_factory=list)
+    difficulty: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str = ""
+
+
+class BatchResponse(BaseModel):
+    labels: list[BatchTaskLabel]
+
+
+# ─── Таксономия ────────────────────────────────────────────
 
 def load_taxonomy_text() -> str:
     tax_path = Path(__file__).parent.parent / "taxonomy" / "informatics_10_11.yaml"
@@ -41,92 +69,77 @@ def load_taxonomy_text() -> str:
                 lines.append(
                     f'- ID: "{skill["id"]}" | '
                     f'Название: "{skill["name"]}" | '
-                    f'Базовая сложность: {skill.get("difficulty", 0.5)}'
+                    f'Сложность по умолчанию: {skill.get("difficulty", 0.5)}'
                 )
     return "\n".join(lines)
 
 
-# ─── Промпт (тот же, что для GigaChat) ───────────────────────
+# ─── Промпт ────────────────────────────────────────────────
 
-SYSTEM_PROMPT_TEMPLATE = """
-Ты — опытный методист по информатике с 20-летним стажем. Твоя задача — разметить школьное задание по двум параметрам: навык (skill_id) и сложность (difficulty от 0.0 до 1.0).
+SYSTEM_PROMPT_TEMPLATE = """Ты — опытный методист по информатике с 20-летним стажем. Твоя задача — разметить несколько школьных заданий одновременно.
 
 ═══════════════════════════════════════════════════════════════
 ЗАДАЧА
 ═══════════════════════════════════════════════════════════════
 
-Для каждого задания верни JSON строго следующей структуры:
+Ты получишь список заданий с их кодами. Разметь КАЖДОЕ.
 
+Для каждого задания верни объект:
 {{
-  "skill_id": "s_xxx",
+  "task_code": "точный код задания из входа",
+  "primary_skill": "s_xxx",
+  "secondary_skills": ["s_yyy"],
   "difficulty": 0.XX,
   "confidence": 0.XX,
-  "reasoning": "Пошаговое объяснение: 1) какой навык проверяется, 2) какие шаги нужны для решения, 3) почему такая оценка сложности."
+  "reasoning": "1) главный навык, 2) вторичные, 3) почему такая сложность"
 }}
 
-Никаких пояснений вне JSON. Только валидный JSON-объект.
+Ответ должен быть JSON-объектом с полем "labels" — массив всех размеченных заданий:
+{{ "labels": [ {{...}}, {{...}}, ... ] }}
+
+Количество элементов в "labels" ДОЛЖНО точно совпадать с количеством заданий во входе.
 
 ═══════════════════════════════════════════════════════════════
-РУБРИКА СЛОЖНОСТИ (шкала 0.0 – 1.0)
+ПРАВИЛА МУЛЬТИ-НАВЫКОВ
 ═══════════════════════════════════════════════════════════════
 
-Оценивай по количеству шагов и типу мышления. Твой шаг - 0.01, старайся использовать как можно более точную оценку и не стесняйся использовать оценку до сотой доли
-
-• 0.01 – 0.20 (очень легко): Задание на воспроизведение. Одно действие, одна формула, прямой подстановкой. Ученик 10 класса решает за 30 секунд без размышлений.
-
-• 0.21 – 0.40 (легко): Одно действие, но требует понимания концепции. Одна формула + подстановка. 1–2 шага. Ученик решает за 1 минуту.
-
-• 0.41 – 0.60 (средне): 2–3 шага, комбинирование 1–2 понятий. Требуется выбрать правильный метод. Ученик решает за 2–3 минуты.
-
-• 0.61 – 0.80 (сложно): 3–4 шага, комбинирование нескольких понятий. Возможны ловушки (единицы измерения, порядок действий). Ученик решает за 3–5 минут, часто ошибается.
-
-• 0.81 – 1.0 (очень сложно): Многошаговое решение с неочевидной стратегией. Требует глубокого понимания или комбинации 3+ навыков. Олимпиадный уровень.
-
-ВАЖНО: сложность — это НЕ длина условия. Длинная задача с одним действием — лёгкая. Короткая задача с несколькими шагами — сложная.
+• primary_skill — навык, который проверяется В ПЕРВУЮ ОЧЕРЕДЬ. Ровно один.
+• secondary_skills — навыки, которые ТОЖЕ задействованы, но не главные. От 0 до 2. Пустой массив [], если нет.
+• Не дублируй primary_skill в secondary_skills.
+• Если задание проверяет один навык — secondary_skills = [].
+• Если задание требует комбинации из двух-трёх навыков — один в primary, остальные в secondary.
 
 ═══════════════════════════════════════════════════════════════
-ЭТАЛОННЫЕ ПРИМЕРЫ (для калибровки)
+РУБРИКА СЛОЖНОСТИ (0.0 – 1.0)
 ═══════════════════════════════════════════════════════════════
 
-Используй эти три примера как точку отсчёта.
+• 0.0–0.2 (очень легко): одно действие, воспроизведение, 30 сек.
+• 0.2–0.4 (легко): одно действие с пониманием, 1–2 шага, 1 минута.
+• 0.4–0.6 (средне): 2–3 шага, комбинирование 1–2 понятий, 2–3 минуты.
+• 0.6–0.8 (сложно): 3–4 шага, ловушки, 3–5 минут, часто ошибаются.
+• 0.8–1.0 (очень сложно): многошаговое, неочевидная стратегия, олимпиадный уровень.
 
-── ЭТАЛОН 1: ЛЁГКОЕ (difficulty = 0.18) ──
-Задание: "Сколько бит в 4 байтах?"
-Ответ:
-{{
-  "skill_id": "s_volume",
-  "difficulty": 0.18,
-  "confidence": 0.95,
-  "reasoning": "1) Проверяется навык перевода единиц измерения информации (байты → биты). 2) Одно действие: 4 × 8 = 32. 3) Сложность 0.2 — ученик знает формулу и применяет её напрямую."
-}}
+Сложность — это НЕ длина условия. Длинная задача с одним действием — лёгкая.
 
-── ЭТАЛОН 2: СРЕДНЕЕ (difficulty = 0.49) ──
-Задание: "Переведите число 255 из десятичной системы счисления в шестнадцатеричную."
-Ответ:
-{{
-  "skill_id": "s_dec_to_base",
-  "difficulty": 0.49,
-  "confidence": 0.9,
-  "reasoning": "1) Проверяется навык перевода из 10-й в 16-ю СС. 2) Два шага: деление на 16, запись остатков в обратном порядке. 3) Сложность 0.5 — ученик знает метод, но должен аккуратно выполнить деление и не перепутать порядок."
-}}
+═══════════════════════════════════════════════════════════════
+ЭТАЛОНЫ (для калибровки)
+═══════════════════════════════════════════════════════════════
 
-── ЭТАЛОН 3: СЛОЖНОЕ (difficulty = 0.77) ──
-Задание: "По каналу связи передаются сообщения из четырёх букв: А, Б, В, Г. Используется двоичный код, удовлетворяющий условию Фано. Для А, Б, В используются кодовые слова 0, 10, 110. Укажите кратчайшее кодовое слово для Г."
-Ответ:
-{{
-  "skill_id": "s_fano_direct",
-  "difficulty": 0.77,
-  "confidence": 0.85,
-  "reasoning": "1) Проверяется понимание прямого условия Фано. 2) Три шага: проверить, что ни одно кодовое слово не является префиксом другого, найти свободную ветку, выбрать кратчайший код. 3) Сложность 0.75 — ученик должен понимать структуру префиксного дерева, что даётся не всем."
-}}
+── ЭТАЛОН 1: ЛЁГКОЕ, один навык ──
+Задание (task_ex1): "Сколько бит в 4 байтах?"
+Ответ: {{"task_code": "task_ex1", "primary_skill": "s_units", "secondary_skills": [], "difficulty": 0.21, "confidence": 0.95, "reasoning": "1) Перевод единиц. 2) Вторичных нет. 3) Одно действие."}}
 
-Используй эти примеры как камертон. Если задание сложнее эталона 2, но проще эталона 3 — ставь 0.6–0.7.
+── ЭТАЛОН 2: СРЕДНЕЕ, один навык ──
+Задание (task_ex2): "Переведите число 255 из десятичной системы в шестнадцатеричную."
+Ответ: {{"task_code": "task_ex2", "primary_skill": "s_dec_to_base", "secondary_skills": [], "difficulty": 0.47, "confidence": 0.9, "reasoning": "1) Перевод из 10-й в 16-ю СС. 2) Вторичных нет. 3) Два шага."}}
+
+── ЭТАЛОН 3: СЛОЖНОЕ, два навыка ──
+Задание (task_ex3): "Напишите программу, которая выводит таблицу умножения на 7 с помощью вложенных циклов."
+Ответ: {{"task_code": "task_ex3", "primary_skill": "s_nested", "secondary_skills": ["s_for"], "difficulty": 0.78, "confidence": 0.85, "reasoning": "1) Главное — вложенные циклы. 2) Требуется понимание обычного for. 3) Комбинация двух навыков."}}
 
 ═══════════════════════════════════════════════════════════════
 ТАКСОНОМИЯ (список доступных навыков)
 ═══════════════════════════════════════════════════════════════
-
-Выбери РОВНО ОДИН skill_id из этого списка. Не придумывай новые.
 
 {taxonomy}
 
@@ -134,13 +147,12 @@ SYSTEM_PROMPT_TEMPLATE = """
 ПРАВИЛА
 ═══════════════════════════════════════════════════════════════
 
-1. skill_id — только из списка выше. Если ни один не подходит идеально, выбери ближайший.
-2. difficulty — обязательно в диапазоне [0.0, 1.0], с двумя знаками после запятой.
-3. confidence — насколько ты уверен: 0.9+ если очевидно, 0.5 если сомневаешься.
-4. reasoning — ОБЯЗАТЕЛЬНО по шагам (1, 2, 3), как в эталонах.
-5. Не добавляй поля сверх указанных.
+1. primary_skill и secondary_skills — только из списка выше.
+2. difficulty — [0.0, 1.0], два знака после запятой.
+3. confidence — 0.9+ если очевидно, 0.5 если сомневаешься.
+4. task_code — ТОЧНО как во входе (не придумывай, не меняй).
+5. Твой шаг в оценке сложности - 0.01; чем точнее будет оценка - тем лучше
 6. Отвечай ТОЛЬКО JSON, без markdown-обёрток.
-7. Твой шаг в оценке сложности - 0.01; чем точнее ты оценишь - тем лучше!
 """
 
 
@@ -148,19 +160,17 @@ def build_system_prompt() -> str:
     return SYSTEM_PROMPT_TEMPLATE.format(taxonomy=load_taxonomy_text())
 
 
-# ─── Разметка одного задания ─────────────────────────────────
+# ─── Запрос к LLM ──────────────────────────────────────────
 
 def parse_json_response(raw: str) -> dict | None:
     """Достаёт JSON из ответа модели, даже если он обёрнут в ```json ... ```."""
     raw = raw.strip()
-    # Снять markdown-обёртку
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Попробовать найти JSON-объект в тексте
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if m:
             try:
@@ -170,7 +180,8 @@ def parse_json_response(raw: str) -> dict | None:
         return None
 
 
-def label_task(task_text: str) -> dict | None:
+def call_deepseek(system_prompt: str, user_content: str) -> dict | None:
+    """Один HTTP-запрос к DeepSeek. Возвращает распарсенный JSON или None."""
     try:
         response = requests.post(
             API_URL,
@@ -181,35 +192,17 @@ def label_task(task_text: str) -> dict | None:
             json={
                 "model": MODEL_API,
                 "messages": [
-                    {"role": "system", "content": build_system_prompt()},
-                    {"role": "user", "content": f"Разметь задание:\n\n{task_text}"},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0.2,
             },
-            timeout=120,
+            timeout=180,
         )
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
-        data = parse_json_response(content)
-        if data is None:
-            return None
-
-        # Валидация полей
-        skill_id = str(data.get("skill_id", "")).strip()
-        difficulty = float(data.get("difficulty", 0.5))
-        confidence = float(data.get("confidence", 0.5))
-        reasoning = str(data.get("reasoning", ""))
-
-        if not skill_id or not (0.0 <= difficulty <= 1.0):
-            return None
-
-        return {
-            "skill_id": skill_id,
-            "difficulty": round(difficulty, 2),
-            "confidence": round(confidence, 2),
-            "reasoning": reasoning,
-        }
+        return parse_json_response(content)
     except requests.HTTPError as e:
         print(f"    HTTP ошибка: {e} — {response.text[:200]}")
         return None
@@ -218,7 +211,117 @@ def label_task(task_text: str) -> dict | None:
         return None
 
 
-# ─── Основной цикл ───────────────────────────────────────────
+# ─── Разметка батча ────────────────────────────────────────
+
+def format_batch_for_prompt(batch: list[dict]) -> str:
+    lines = ["Разметь следующие задания:\n"]
+    for i, task in enumerate(batch, 1):
+        lines.append(f"─── Задание {i} ───")
+        lines.append(f"Код: {task['code']}")
+        lines.append(f"Текст: {task['text']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def label_batch(batch: list[dict]) -> dict[str, BatchTaskLabel]:
+    """
+    Размечает батч заданий. Возвращает dict {task_code: BatchTaskLabel}.
+    Пустой dict — если не удалось.
+    """
+    system_prompt = build_system_prompt()
+    user_content = format_batch_for_prompt(batch)
+    expected_codes = {t["code"] for t in batch}
+
+    for attempt in range(MAX_RETRIES + 1):
+        data = call_deepseek(system_prompt, user_content)
+        if not data:
+            if attempt < MAX_RETRIES:
+                time.sleep(SLEEP_BETWEEN_RETRIES)
+            continue
+
+        try:
+            parsed = BatchResponse.model_validate(data)
+        except ValidationError as e:
+            print(f"    Валидация не прошла (попытка {attempt + 1}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(SLEEP_BETWEEN_RETRIES)
+            continue
+
+        returned_codes = {lbl.task_code for lbl in parsed.labels}
+
+        # Проверяем, что коды совпадают
+        if returned_codes != expected_codes:
+            missing = expected_codes - returned_codes
+            extra = returned_codes - expected_codes
+            print(f"    Несовпадение кодов (попытка {attempt + 1}): "
+                  f"missing={missing}, extra={extra}")
+            if attempt < MAX_RETRIES:
+                time.sleep(SLEEP_BETWEEN_RETRIES)
+            continue
+
+        return {lbl.task_code: lbl for lbl in parsed.labels}
+
+    return {}
+
+
+def label_single(task: dict) -> BatchTaskLabel | None:
+    """Fallback: разметка одного задания, если батч не сработал."""
+    system_prompt = build_system_prompt()
+    user_content = format_batch_for_prompt([task])
+
+    data = call_deepseek(system_prompt, user_content)
+    if not data:
+        return None
+    try:
+        parsed = BatchResponse.model_validate(data)
+        if parsed.labels:
+            return parsed.labels[0]
+    except ValidationError:
+        pass
+    return None
+
+
+# ─── Сохранение в БД ───────────────────────────────────────
+
+def save_label(conn, task_id: str, label: BatchTaskLabel) -> None:
+    """Сохраняет primary-навык и secondary-навыки для задания."""
+    # Primary
+    conn.execute(text("""
+        INSERT INTO task_labels
+            (task_id, skill_id, difficulty, confidence, model, reasoning, is_primary)
+        VALUES (:tid, :sid, :diff, :conf, :model, :reason, TRUE)
+        ON CONFLICT (task_id, skill_id, model) DO UPDATE
+          SET difficulty = EXCLUDED.difficulty,
+              confidence = EXCLUDED.confidence,
+              reasoning = EXCLUDED.reasoning,
+              is_primary = TRUE
+    """), {
+        "tid": task_id, "sid": label.primary_skill,
+        "diff": label.difficulty, "conf": label.confidence,
+        "model": MODEL_TAG, "reason": label.reasoning,
+    })
+
+    # Secondary (до 2, без дублирования primary)
+    for sec in label.secondary_skills[:2]:
+        if sec == label.primary_skill:
+            continue
+        conn.execute(text("""
+            INSERT INTO task_labels
+                (task_id, skill_id, difficulty, confidence, model, reasoning, is_primary)
+            VALUES (:tid, :sid, :diff, :conf, :model, :reason, FALSE)
+            ON CONFLICT (task_id, skill_id, model) DO UPDATE
+              SET difficulty = EXCLUDED.difficulty,
+                  confidence = EXCLUDED.confidence,
+                  reasoning = EXCLUDED.reasoning,
+                  is_primary = FALSE
+        """), {
+            "tid": task_id, "sid": sec,
+            "diff": label.difficulty, "conf": label.confidence,
+            "model": MODEL_TAG, "reason": label.reasoning,
+        })
+
+
+# ─── Основной цикл ─────────────────────────────────────────
 
 def main():
     with engine.begin() as conn:
@@ -239,37 +342,56 @@ def main():
         """), {"m": MODEL_TAG}).fetchall()
 
         if not tasks:
-            print("Все задания уже размечены DeepSeek.")
+            print("Все задания уже размечены.")
             return
 
-        print(f"К разметке: {len(tasks)}\n")
+        tasks = [{"id": str(r[0]), "code": r[1], "text": r[2]} for r in tasks]
+        n_tasks = len(tasks)
+        n_batches = (n_tasks + BATCH_SIZE - 1) // BATCH_SIZE
+
+        print(f"К разметке: {n_tasks} заданий, {n_batches} батчей по {BATCH_SIZE}\n")
 
         success = 0
-        for i, (task_id, code, task_text) in enumerate(tasks, 1):
-            print(f"[{i}/{len(tasks)}] {code}")
-            label = label_task(task_text)
+        fallback = 0
+        failed = 0
 
-            if label:
-                conn.execute(text("""
-                    INSERT INTO task_labels
-                        (task_id, skill_id, difficulty, confidence, model, reasoning)
-                    VALUES (:tid, :sid, :diff, :conf, :model, :reason)
-                    ON CONFLICT (task_id, skill_id, model) DO UPDATE
-                      SET difficulty = EXCLUDED.difficulty,
-                          confidence = EXCLUDED.confidence,
-                          reasoning = EXCLUDED.reasoning
-                """), {
-                    "tid": task_id, "sid": label["skill_id"],
-                    "diff": label["difficulty"], "conf": label["confidence"],
-                    "model": MODEL_TAG, "reason": label["reasoning"],
-                })
-                print(f"    → {label['skill_id']} | {label['difficulty']:.2f} | "
-                      f"conf {label['confidence']:.2f}")
-                success += 1
+        for b_idx in range(n_batches):
+            batch = tasks[b_idx * BATCH_SIZE:(b_idx + 1) * BATCH_SIZE]
+            print(f"─── Батч {b_idx + 1}/{n_batches} "
+                  f"({len(batch)} заданий) ───")
+
+            labels = label_batch(batch)
+
+            if len(labels) == len(batch):
+                for task in batch:
+                    save_label(conn, task["id"], labels[task["code"]])
+                    print(f"    ✓ {task['code']} → "
+                          f"{labels[task['code']].primary_skill} "
+                          f"(+{len(labels[task['code']].secondary_skills)} sec)")
+                    success += 1
             else:
-                print("    → не удалось")
+                # Fallback: размечаем по одному
+                print(f"    Fallback: размечаем по одному")
+                for task in batch:
+                    label = label_single(task)
+                    if label:
+                        save_label(conn, task["id"], label)
+                        print(f"    ✓ {task['code']} → {label.primary_skill} "
+                              f"(single)")
+                        success += 1
+                        fallback += 1
+                    else:
+                        print(f"    ✗ {task['code']} — не удалось")
+                        failed += 1
 
-        print(f"\nУспешно: {success}/{len(tasks)}")
+            # Пауза между батчами
+            if b_idx < n_batches - 1:
+                time.sleep(SLEEP_BETWEEN_BATCHES)
+
+    print(f"\n═══ Итог ═══")
+    print(f"Успешно: {success}/{n_tasks}")
+    print(f"  из них через fallback: {fallback}")
+    print(f"Не удалось: {failed}")
 
 
 if __name__ == "__main__":

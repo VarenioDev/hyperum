@@ -55,19 +55,38 @@ def get_topic_skills(session: Session, topic: str) -> list[str]:
 def get_candidate_tasks(
     session: Session, skill_ids: list[str], model: str = "deepseek"
 ) -> list[dict]:
+    """
+    Задания, связанные с любым из указанных навыков.
+    Одно задание — одна строка (даже если связано с несколькими навыками).
+    """
     if not skill_ids:
         return []
+
     rows = session.execute(text("""
-        SELECT t.id, t.code, t.text, tl.skill_id, tl.difficulty
+        SELECT
+            t.id AS task_id,
+            t.code,
+            t.text,
+            MAX(CASE WHEN tl.is_primary THEN tl.skill_id END) AS primary_skill,
+            array_agg(DISTINCT tl.skill_id) AS all_skills,
+            AVG(tl.difficulty) AS difficulty
         FROM tasks t
         JOIN task_labels tl ON tl.task_id = t.id
-        WHERE tl.skill_id = ANY(:sids) AND tl.model = :model
+        WHERE tl.skill_id = ANY(:sids)
+          AND tl.model = :model
+        GROUP BY t.id, t.code, t.text
+        HAVING MAX(CASE WHEN tl.is_primary THEN tl.skill_id END) IS NOT NULL
         ORDER BY t.code
     """), {"sids": skill_ids, "model": model}).fetchall()
+
     return [
         {
-            "task_id": str(r[0]), "code": r[1], "text": r[2],
-            "skill_id": r[3], "difficulty": float(r[4]),
+            "task_id": str(r[0]),
+            "code": r[1],
+            "text": r[2],
+            "primary_skill": r[3],
+            "all_skills": list(r[4]) if r[4] else [],
+            "difficulty": float(r[5]),
         }
         for r in rows
     ]
@@ -132,7 +151,12 @@ def select_tasks_for_student(
     max_per_band: int = 2,
     usage_counter: dict[str, int] | None = None,
 ) -> list[dict]:
-    """Выбор n заданий с diversity по навыку и сложности."""
+    """
+    Выбор n заданий для ученика с учётом multi-skill.
+
+    mastery для scoring — взвешенная: 0.7 × primary + 0.3 × avg(secondary).
+    Diversity — по primary-навыку.
+    """
     usage_counter = usage_counter or {}
 
     shuffled = list(candidates)
@@ -140,12 +164,25 @@ def select_tasks_for_student(
 
     scored = []
     for c in shuffled:
-        m = mastery.get(c["skill_id"], 0.5)
+        primary = c["primary_skill"]
+        all_skills = c.get("all_skills", [primary])
+
+        # Взвешенная mastery
+        primary_m = mastery.get(primary, 0.5)
+        secondaries = [mastery.get(s, 0.5) for s in all_skills if s != primary]
+        if secondaries:
+            secondary_m = sum(secondaries) / len(secondaries)
+            effective_mastery = 0.7 * primary_m + 0.3 * secondary_m
+        else:
+            effective_mastery = primary_m
+
         usage = usage_counter.get(c["task_id"], 0)
-        s = score_task(m, c["difficulty"], usage)
+        s = score_task(effective_mastery, c["difficulty"], usage)
+
         scored.append({
             **c,
-            "mastery": m,
+            "mastery": effective_mastery,
+            "primary_mastery": primary_m,
             "usage": usage,
             "score": s,
             "band": _difficulty_band(c["difficulty"]),
@@ -158,12 +195,13 @@ def select_tasks_for_student(
     band_counts: dict[str, int] = {}
 
     for task in scored:
-        if skill_counts.get(task["skill_id"], 0) >= max_per_skill:
+        primary = task["primary_skill"]
+        if skill_counts.get(primary, 0) >= max_per_skill:
             continue
         if band_counts.get(task["band"], 0) >= max_per_band:
             continue
         selected.append(task)
-        skill_counts[task["skill_id"]] = skill_counts.get(task["skill_id"], 0) + 1
+        skill_counts[primary] = skill_counts.get(primary, 0) + 1
         band_counts[task["band"]] = band_counts.get(task["band"], 0) + 1
         if len(selected) == n:
             break
@@ -174,14 +212,15 @@ def select_tasks_for_student(
         for task in scored:
             if task["task_id"] in ids:
                 continue
-            if skill_counts.get(task["skill_id"], 0) >= max_per_skill:
+            primary = task["primary_skill"]
+            if skill_counts.get(primary, 0) >= max_per_skill:
                 continue
             selected.append(task)
-            skill_counts[task["skill_id"]] = skill_counts.get(task["skill_id"], 0) + 1
+            skill_counts[primary] = skill_counts.get(primary, 0) + 1
             if len(selected) == n:
                 break
 
-    # Финальный добор без ограничений
+    # Финальный добор
     if len(selected) < n:
         ids = {t["task_id"] for t in selected}
         for task in scored:
@@ -233,7 +272,8 @@ def generate_for_group(
         mastery = get_student_mastery(session, student["id"])
         blocked = get_weak_prerequisites(student["id"], skill_ids)
 
-        filtered = [c for c in candidates if c["skill_id"] not in blocked] \
+# Убираем задания, у которых primary-навык заблокирован
+        filtered = [c for c in candidates if c["primary_skill"] not in blocked] \
             if blocked else candidates
         if not filtered:
             filtered = candidates

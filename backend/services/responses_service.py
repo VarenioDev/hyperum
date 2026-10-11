@@ -63,7 +63,7 @@ def _mark_assignment_completed_if_done(
               AND status != 'completed'
         """), {"aid": str(assignment_id), "sid": str(student_id)})
 
-def _smoothed_mastery(correct: int, attempts: int) -> float:
+def _smoothed_mastery(correct: float, attempts: float) -> float:
     """
     Байесовское сглаживание mastery.
     При малом числе попыток тянем к 0.5, при большом — доверяем данным.
@@ -128,10 +128,14 @@ def save_response(
 
 
 def get_task_skills(session: Session, task_id: UUID | str) -> list[str]:
-    """Навыки, которые проверяет задание (по разметке deepseek)."""
+    """
+    Навыки, которые проверяет задание.
+    Primary идёт первым, secondary — после.
+    """
     rows = session.execute(text("""
         SELECT skill_id FROM task_labels
         WHERE task_id = :tid AND model = 'deepseek'
+        ORDER BY is_primary DESC, skill_id
     """), {"tid": str(task_id)}).fetchall()
     return [r[0] for r in rows]
 
@@ -143,11 +147,42 @@ def update_mastery(
     skill_id: str,
 ) -> float:
     """
-    Пересчитать mastery по навыку на основе всех ответов ученика.
-    Возвращает новое значение.
+    Пересчитать mastery по навыку с учётом multi-skill разметки.
+
+    Веса:
+      - primary-навык задания → вес 1.0
+      - secondary-навык задания → вес 0.7
+
+    Mastery считается по взвешенным attempts/correct.
+    В student_mastery пишутся «сырые» attempts/correct — для честного
+    отображения в UI («3 из 5»), а не взвешенные.
     """
-    # Считаем агрегаты по всем ответам на этот навык
-    row = session.execute(text("""
+    # Взвешенные значения для расчёта mastery
+    weighted_row = session.execute(text("""
+        SELECT
+            SUM(CASE WHEN tl.is_primary THEN 1.0 ELSE 0.7 END) AS w_attempts,
+            SUM(
+                CASE WHEN r.correct
+                     THEN (CASE WHEN tl.is_primary THEN 1.0 ELSE 0.7 END)
+                     ELSE 0
+                END
+            ) AS w_correct
+        FROM responses r
+        JOIN task_labels tl ON tl.task_id = r.task_id
+        WHERE r.student_id = :sid
+          AND tl.skill_id = :skill
+          AND tl.model = 'deepseek'
+          AND r.tenant_id = :t
+    """), {
+        "sid": str(student_id), "skill": skill_id, "t": tenant_id,
+    }).fetchone()
+
+    weighted_attempts = float(weighted_row[0] or 0)
+    weighted_correct = float(weighted_row[1] or 0)
+    mastery = _smoothed_mastery(weighted_correct, weighted_attempts)
+
+    # Сырые значения для отображения
+    raw_row = session.execute(text("""
         SELECT
             COUNT(*) AS attempts,
             SUM(CASE WHEN r.correct THEN 1 ELSE 0 END) AS correct
@@ -161,11 +196,9 @@ def update_mastery(
         "sid": str(student_id), "skill": skill_id, "t": tenant_id,
     }).fetchone()
 
-    attempts = row[0] or 0
-    correct = row[1] or 0
-    mastery = _smoothed_mastery(correct, attempts)
+    raw_attempts = int(raw_row[0] or 0)
+    raw_correct = int(raw_row[1] or 0)
 
-    # Upsert в student_mastery
     session.execute(text("""
         INSERT INTO student_mastery
             (tenant_id, student_id, skill_id, mastery, attempts, correct, updated_at)
@@ -178,7 +211,8 @@ def update_mastery(
               updated_at = now()
     """), {
         "t": tenant_id, "s": str(student_id), "skill": skill_id,
-        "m": round(mastery, 4), "a": attempts, "c": correct,
+        "m": round(mastery, 4),
+        "a": raw_attempts, "c": raw_correct,
     })
 
     return mastery
@@ -271,16 +305,15 @@ def submit_response(
     skill_ids = get_task_skills(session, task_id)
     new_mastery = None
     for skill_id in skill_ids:
-        new_mastery = update_mastery(session, tenant_id, student_id, skill_id)
+        m = update_mastery(session, tenant_id, student_id, skill_id)
+        if new_mastery is None:
+            new_mastery = m  # первый = primary (или просто первый)
         stats = session.execute(text("""
             SELECT attempts, correct FROM student_mastery
             WHERE tenant_id = :t AND student_id = :s AND skill_id = :sk
         """), {"t": tenant_id, "s": str(student_id), "sk": skill_id}).fetchone()
         if stats:
-            sync_mastery_to_neo4j(
-                student_id, skill_id,
-                new_mastery, stats[0], stats[1],
-            )
+            sync_mastery_to_neo4j(student_id, skill_id, m, stats[0], stats[1])
     _mark_assignment_completed_if_done(session, tenant_id, student_id, task_id)
 
     return {
