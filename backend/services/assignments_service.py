@@ -397,12 +397,16 @@ def list_assignments_for_student(
                (SELECT COUNT(*) FROM assignment_tasks
                 WHERE assignment_id = a.id AND student_id = :sid) AS task_count,
                (SELECT COUNT(DISTINCT r.task_id) FROM responses r
-                JOIN assignment_tasks at
-                  ON at.task_id = r.task_id AND at.assignment_id = a.id
-                WHERE at.student_id = :sid
-                  AND r.student_id = :sid
-                  AND (r.correct IS NOT NULL OR r.skipped = TRUE)
-               ) AS completed_count
+                    JOIN assignment_tasks at
+                    ON at.task_id = r.task_id AND at.assignment_id = a.id
+                    WHERE at.student_id = :sid
+                    AND r.student_id = :sid
+                    AND (r.correct IS NOT NULL OR r.skipped = TRUE)
+                    AND r.created_at >= COALESCE(
+                        (SELECT sent_at FROM assignments WHERE id = a.id),
+                        '1970-01-01'::timestamptz
+                    )
+                    ) AS completed_count
         FROM assignments a
         JOIN assignment_students ast ON ast.assignment_id = a.id
         WHERE ast.student_id = :sid
