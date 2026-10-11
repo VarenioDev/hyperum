@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth.dependencies import require_teacher
 from backend.db.postgres import tenant_session
-from backend.models.groups import (
-    GroupCreate, GroupResponse, GroupDetail, GroupByCode,
-    JoinRequest, JoinResponse, ApproveResponse,
-)
 from backend.models.users import UserResponse
 from backend.services import groups_service as svc
 from backend.models.users import UserResponse, StudentUpdate
+from backend.models.groups import (
+    GroupCreate, GroupResponse, GroupDetail, GroupByCode,
+    JoinRequest, JoinResponse, ApproveResponse, GroupUpdate,
+)
 
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -188,3 +188,24 @@ async def remove_member(
         raise HTTPException(404, detail="Класс или ученик не найден")
 
     return {"status": "removed", "student_id": str(student_id)}
+
+@router.patch("/{group_id}", response_model=dict)
+async def update_group_endpoint(
+    group_id: UUID,
+    payload: GroupUpdate,
+    user: UserResponse = Depends(require_teacher),
+):
+    """Изменить название класса."""
+    with tenant_session(user.tenant_id) as session:
+        try:
+            ok = svc.update_group(
+                session, group_id, str(user.id),
+                payload.name, payload.subject,
+            )
+        except ValueError as e:
+            raise HTTPException(409, detail=str(e))
+
+    if not ok:
+        raise HTTPException(404, detail="Класс не найден")
+
+    return {"id": str(group_id), "name": payload.name}

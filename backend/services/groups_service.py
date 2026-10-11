@@ -317,3 +317,39 @@ def remove_student_from_group(
     """), {"gid": str(group_id), "sid": str(student_id)})
 
     return True
+
+def update_group(
+    session: Session,
+    group_id: UUID | str,
+    owner_id: str,
+    name: str,
+    subject: str | None = None,
+) -> bool:
+    """Обновить название класса. Только владелец."""
+    check = session.execute(text("""
+        SELECT 1 FROM groups
+        WHERE id = :gid AND owner_id = :owner
+    """), {"gid": str(group_id), "owner": owner_id}).fetchone()
+
+    if not check:
+        return False
+
+    # Проверяем уникальность имени среди классов того же tenant'а
+    duplicate = session.execute(text("""
+        SELECT 1 FROM groups
+        WHERE name = :n AND owner_id = :owner AND id != :gid AND kind = 'class'
+    """), {"n": name, "owner": owner_id, "gid": str(group_id)}).fetchone()
+
+    if duplicate:
+        raise ValueError("Класс с таким названием уже существует")
+
+    if subject:
+        session.execute(text("""
+            UPDATE groups SET name = :n, subject = :s WHERE id = :gid
+        """), {"n": name, "s": subject, "gid": str(group_id)})
+    else:
+        session.execute(text("""
+            UPDATE groups SET name = :n WHERE id = :gid
+        """), {"n": name, "gid": str(group_id)})
+
+    return True

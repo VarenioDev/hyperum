@@ -104,3 +104,8 @@ class ApproveResponse(BaseModel):
     student_id: UUID
     status: str
     message: str
+
+class GroupUpdate(BaseModel):
+    """Обновление класса."""
+    name: str = Field(..., min_length=2, max_length=50)
+    subject: str | None = None

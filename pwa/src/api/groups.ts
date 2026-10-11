@@ -119,3 +119,12 @@ export async function removeStudentFromGroup(
   )
   return data
 }
+
+export async function updateGroup(
+  groupId: string,
+  name: string,
+  subject?: string
+): Promise<{ id: string; name: string }> {
+  const { data } = await api.patch(`/groups/${groupId}`, { name, subject })
+  return data
+}
