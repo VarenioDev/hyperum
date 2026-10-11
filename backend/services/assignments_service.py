@@ -434,18 +434,18 @@ def get_assignment_tasks(
     rows = session.execute(text("""
         SELECT at.position, t.id, t.code, t.text, t.type, t.options,
                t.answer AS expected,
-               r.answer, r.correct, r.skipped, r.time_sec
+               r.answer, r.correct, r.skipped, r.time_sec, r.surrendered
         FROM assignment_tasks at
         JOIN tasks t ON t.id = at.task_id
         LEFT JOIN LATERAL (
             SELECT r.answer, r.correct, r.skipped, r.time_sec, r.surrendered
             FROM responses r
             WHERE r.task_id = at.task_id
-            AND r.student_id = at.student_id
-            AND r.created_at >= COALESCE(
-                (SELECT sent_at FROM assignments WHERE id = :aid),
-                '1970-01-01'::timestamptz
-            )
+              AND r.student_id = at.student_id
+              AND r.created_at >= COALESCE(
+                  (SELECT sent_at FROM assignments WHERE id = :aid),
+                  '1970-01-01'::timestamptz
+              )
             ORDER BY r.created_at DESC
             LIMIT 1
         ) r ON TRUE
@@ -461,20 +461,18 @@ def get_assignment_tasks(
             "previous_response": None,
         }
 
-        # Есть ли предыдущий ответ (или пропуск)
         if r[7] is not None or r[9] is True:
             task_data["previous_response"] = {
                 "answer": r[7] or "",
                 "correct": r[8],
                 "skipped": r[9] or False,
-                "surrendered": r[11] or False,
                 "time_sec": r[10],
+                "surrendered": r[11] or False,
                 "expected": r[6],
             }
         result.append(task_data)
 
     return result
-
 
 def send_assignment(
     session: Session, assignment_id: str, teacher_id: str
