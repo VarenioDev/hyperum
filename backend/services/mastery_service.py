@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.models.responses import (
-    MasteryItem, StudentMastery, ClassMasteryItem,
+    MasteryItem, StudentMastery, ClassMasteryItem, MasterySummary,
 )
 
 
@@ -156,3 +156,63 @@ def get_weak_skills(
         )
         for r in rows
     ]
+
+def get_student_summary(
+    session: Session,
+    student_id: UUID | str,
+) -> MasterySummary | None:
+    """
+    Краткая сводка mastery для дашборда ученика.
+    Считает только навыки с attempts > 0 (встречавшиеся).
+    Возвращает None, если ученик не найден.
+    """
+    # Проверка, что ученик существует
+    user_row = session.execute(text("""
+        SELECT 1 FROM users
+        WHERE id = :sid AND role = 'student'
+    """), {"sid": str(student_id)}).fetchone()
+
+    if user_row is None:
+        return None
+
+    # Все навыки ученика (только с попытками)
+    rows = session.execute(text("""
+        SELECT sm.skill_id, s.name,
+               sm.mastery, sm.attempts, sm.correct, sm.updated_at
+        FROM student_mastery sm
+        JOIN skills s ON s.id = sm.skill_id
+        WHERE sm.student_id = :sid AND sm.attempts > 0
+        ORDER BY sm.mastery ASC
+    """), {"sid": str(student_id)}).fetchall()
+
+    skills = [
+        MasteryItem(
+            skill_id=r[0], skill_name=r[1],
+            mastery=float(r[2]), attempts=r[3], correct=r[4],
+            updated_at=r[5],
+        )
+        for r in rows
+    ]
+
+    total = len(skills)
+    mastered = sum(1 for s in skills if s.mastery >= 0.8)
+    learning = sum(1 for s in skills if 0.5 <= s.mastery < 0.8)
+    weak = sum(1 for s in skills if s.mastery < 0.5)
+    avg = sum(s.mastery for s in skills) / total if total else 0.0
+
+    # Ответы за 14 дней
+    responses_last_14d = session.execute(text("""
+        SELECT COUNT(*) FROM responses
+        WHERE student_id = :sid
+          AND created_at >= now() - interval '14 days'
+    """), {"sid": str(student_id)}).scalar() or 0
+
+    return MasterySummary(
+        total_skills=total,
+        mastered=mastered,
+        learning=learning,
+        weak=weak,
+        avg_mastery=round(avg, 3),
+        responses_last_14d=int(responses_last_14d),
+        top_weak_skills=skills[:3],
+    )

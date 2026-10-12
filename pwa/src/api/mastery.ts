@@ -23,6 +23,21 @@ export async function getMyMastery(): Promise<StudentMastery> {
   return data
 }
 
+export interface MasterySummary {
+  total_skills: number
+  mastered: number
+  learning: number
+  weak: number
+  avg_mastery: number
+  responses_last_14d: number
+  top_weak_skills: MasteryItem[]
+}
+
+export async function getMyMasterySummary(): Promise<MasterySummary> {
+  const { data } = await api.get<MasterySummary>('/mastery/me/summary')
+  return data
+}
+
 /** Утилита: получить «слабые» навыки (mastery < 0.5) */
 export function getWeakSkills(skills: MasteryItem[], threshold = 0.5): MasteryItem[] {
   return skills

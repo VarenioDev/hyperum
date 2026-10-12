@@ -1,595 +1,793 @@
 # HyperUm — Архитектура
 
-**Версия:** 0.1
-**Дата:** 2026-09
+**Версия:** 1.0
+**Дата:** 2026-10
+**Статус:** актуальная. Отражает состояние на момент пилота в лицее при ТПУ.
 
 **Связанные документы:**
-- `docs/requirements.md` — требования и scope
-- `docs/data-model.md` — детальная схема данных (план)
-- `README.md` — обзор и установка
+- `glossary.md` — словарь терминов
+- `data-model.md` — схема данных
+- `requirements.md` — требования и статусы
+- `ml.md` — ML-модуль
+- `api.md` — обзор API
+- `user-flows.md` — сценарии
+- `deployment.md` — развёртывание
+- `decisions.md` — архитектурные решения
 
 ---
 
-## 1. Обзор архитектуры
+## 1. Что такое HyperUm
 
-HyperUm — full-stack система, включающая:
+Система гиперперсонализации образовательного процесса на основе графа знаний
+и ML-моделей. Работает как **интеллектуальный ассистент учителя**:
+наставник задаёт тему, система подбирает **персональный набор заданий
+каждому ученику** с опорой на его граф знаний.
 
-- **Backend API** — ядро логики, единая точка входа для всех клиентов.
-- **Приложение ученика** (PWA) — решение заданий и просмотр графа.
-- **Дашборд учителя/репетитора** — генерация тестов, аналитика.
-- **ML-модуль** — оценка знаний, подбор заданий, прогнозы.
-- **Две БД** — PostgreSQL (транзакционные данные) и Neo4j (граф знаний).
-- **LLM-сервис** — локальная Mistral через Ollama (разметка заданий).
+Ключевое отличие от адаптивных систем (Учи.ру, ЯКласс): HyperUm
+**не заменяет** учителя и **не раздаёт** всем одинаковые задания.
+Одно нажатие кнопки → N персональных тестов для N учеников.
 
-### 1.1. Принципы
+**Развёрнут и работает:** https://hyperum.polyum.ru  
+**Апробация:** Лицей при ТПУ, 3 класса, 67 учеников.
 
-1. **API-first.** Вся логика в backend, клиенты — тонкие.
-2. **Multi-tenant с первого дня.** `tenant_id` везде, RLS в PostgreSQL.
-3. **Три уровня данных.** Global (таксономия), shared (банк), isolated (PII и ответы).
-4. **Core + adapters.** Ядро не зависит от организационной модели (школа / платформа).
-5. **Идемпотентность.** Все скрипты можно запускать многократно.
-6. **Единая точка правды.** Таксономия — в YAML; логика сравнения — в одном модуле.
+### Научная цель
+
+HyperUm — не только продукт, но и **фабрика данных** для обучения модели,
+которая заменит эвристический подбор заданий на обученный на реальных
+исходах пилота.
+
+**Текущее состояние** (baseline): mastery считается формулой (взвешенный
+`correct / attempts` + сглаживание), задания подбираются IRT-подобной
+функцией полезности, prerequisite-фильтр — порог mastery < 0.5.
+
+**Что делаем дальше:** обучение BKT → graph-BKT → A/B тест.
+
+Полная научная рамка, гипотезы H1–H5, метрики и план эксперимента — в
+[`research.md`](research.md).
 
 ---
 
 ## 2. Компоненты системы
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          КЛИЕНТЫ                                    │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────┐  ┌────────────┐   │
-│  │  PWA ученика │  │  Дашборд     │  │  CLI /   │  │  Платформа │   │
-│  │  (React)     │  │  учителя     │  │  скрипты │  │  ПолиУм    │   │
-│  │              │  │  (Streamlit) │  │          │  │  (внешний) │   │
-│  └──────┬───────┘  └──────┬───────┘  └────┬─────┘  └─────┬──────┘   │
-│         │                 │                │              │          │
-│         └─────────────────┼────────────────┼──────────────┘          │
-│                           │  HTTP / REST                            │
-└───────────────────────────┼─────────────────────────────────────────┘
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       BACKEND (FastAPI)                             │
-│                                                                     │
-│  ┌──────────────┐  ┌───────────────┐  ┌───────────────┐             │
-│  │ Auth / JWT   │  │ Tenant        │  │ Роутеры:      │             │
-│  │              │  │ middleware    │  │ tasks,        │             │
-│  │              │  │ (RLS)         │  │ assignments,  │             │
-│  │              │  │               │  │ mastery,      │             │
-│  │              │  │               │  │ graph,        │             │
-│  │              │  │               │  │ generate      │             │
-│  └──────────────┘  └───────────────┘  └───────┬───────┘             │
-│                                                │                     │
-│  ┌─────────────────────────────────────────────┼───────────────────┐ │
-│  │                   SERVICES                  │                   │ │
-│  │                                             ▼                   │ │
-│  │  ┌────────────────┐  ┌──────────────┐  ┌─────────────────┐     │ │
-│  │  │ TaskGenerator  │  │ Mastery      │  │ IngestService   │     │ │
-│  │  │ (ядро!)        │  │ Service      │  │ (CSV + PWA)     │     │ │
-│  │  └────────┬───────┘  └──────┬───────┘  └────────┬────────┘     │ │
-│  │           │                 │                    │              │ │
-│  │  ┌────────┴───────┐  ┌──────┴───────┐  ┌────────┴────────┐     │ │
-│  │  │ ML: подбор     │  │ ML: knowledge│  │ Нормализация    │     │ │
-│  │  │ (scoring,      │  │ tracing      │  │ ответов         │     │ │
-│  │  │  bandit)       │  │ (BKT/DKT)    │  │ (normalize.py)  │     │ │
-│  │  └────────────────┘  └──────────────┘  └─────────────────┘     │ │
-│  └─────────────────────────────────────────────────────────────────┘ │
-└──────┬───────────────────┬──────────────────────┬───────────────────┘
-       │                   │                      │
-       ▼                   ▼                      ▼
-┌────────────┐      ┌────────────┐         ┌────────────┐
-│ PostgreSQL │      │   Neo4j    │         │  Ollama    │
-│            │      │            │         │  (Mistral) │
-│ tasks      │      │ Module     │         │            │
-│ users      │      │ Topic      │         │  label     │
-│ responses  │      │ Skill      │         │  tasks     │
-│ mastery    │      │ PREREQ     │         │            │
-│ tenants    │      │ MASTERY    │         │            │
-└────────────┘      └────────────┘         └────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                            КЛИЕНТЫ                                   │
+│                                                                      │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌──────────────┐   │
+│  │ PWA ученика        │  │ PWA учителя        │  │ ПолиУм       │   │
+│  │ (React + Vite)     │  │ (в том же билде)   │  │ (внешний,    │   │
+│  │                    │  │                    │  │  в планах)   │   │
+│  └──────────┬─────────┘  └──────────┬─────────┘  └──────┬───────┘   │
+│             │                       │                    │           │
+│             └───────────────────────┼────────────────────┘           │
+│                                     │ REST + JWT (cookies/Bearer)    │
+└─────────────────────────────────────┼────────────────────────────────┘
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      NGINX (VPS hyperum.polyum.ru)                   │
+│                      статика + reverse proxy                         │
+└─────────────────────────────────────┬────────────────────────────────┘
+                                      ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                       BACKEND (FastAPI)                              │
+│                                                                      │
+│  ┌───────────────┐  ┌──────────────────┐  ┌────────────────────┐    │
+│  │ auth          │  │ RLS / tenant     │  │ Роутеры:           │    │
+│  │ JWT+bcrypt    │  │ middleware       │  │ tasks, mastery,    │    │
+│  │               │  │                  │  │ graph, assignments,│    │
+│  │               │  │                  │  │ responses, groups, │    │
+│  │               │  │                  │  │ demo, auth         │    │
+│  └───────────────┘  └──────────────────┘  └────────┬───────────┘    │
+│                                                     │                │
+│  ┌──────────────────────────────────────────────────┼──────────┐     │
+│  │                    SERVICES                      │          │     │
+│  │                                                  ▼          │     │
+│  │  ┌───────────────────┐  ┌─────────────────┐  ┌───────────┐ │     │
+│  │  │ assignments       │  │ responses       │  │ mastery   │ │     │
+│  │  │ _service          │  │ _service        │  │ _service  │ │     │
+│  │  │                   │  │                 │  │           │ │     │
+│  │  │ IRT-scoring,      │  │ check + save +  │  │ агрегация │ │     │
+│  │  │ prerequisite,     │  │ mastery update +│  │ по ученику│ │     │
+│  │  │ diversity         │  │ Neo4j sync      │  │ и классу  │ │     │
+│  │  └─────────┬─────────┘  └────────┬────────┘  └───────────┘ │     │
+│  │            │                     │                          │     │
+│  │  ┌─────────┴─────────┐  ┌────────┴────────┐  ┌───────────┐ │     │
+│  │  │ graph_service     │  │ groups_service  │  │ tasks     │ │     │
+│  │  │ Neo4j + PG        │  │ регистрация,    │  │ _service  │ │     │
+│  │  │                   │  │ инвайты, approve│  │           │ │     │
+│  │  └───────────────────┘  └─────────────────┘  └───────────┘ │     │
+│  │                                                             │     │
+│  │  ┌───────────────────┐                                      │     │
+│  │  │ demo_service      │                                      │     │
+│  │  │ LLM-разбор +      │                                      │     │
+│  │  │ rate limit + TTL  │                                      │     │
+│  │  └───────────────────┘                                      │     │
+│  └─────────────────────────────────────────────────────────────┘     │
+└──────┬────────────────────────┬──────────────────────────┬───────────┘
+       │                        │                          │
+       ▼                        ▼                          ▼
+┌─────────────┐         ┌─────────────┐            ┌─────────────┐
+│ PostgreSQL  │         │   Neo4j     │            │  DeepSeek   │
+│ 16          │         │   5         │            │  API        │
+│             │         │             │            │             │
+│ tenants     │         │ :Module     │            │ разметка    │
+│ users       │         │ :Topic      │            │ demo-парсинг│
+│ groups      │         │ :Skill      │            │             │
+│ memberships │         │ PREREQUISITE│            │             │
+│ tasks       │         │ :Student    │            │             │
+│ task_labels │         │ MASTERY     │            │             │
+│ responses   │         │             │            │             │
+│ mastery     │         │             │            │             │
+│ assignments │         │             │            │             │
+└─────────────┘         └─────────────┘            └─────────────┘
 ```
 
----
-
-## 3. Уровни данных
-
-Три уровня, определяющих архитектуру:
+### 2.1. Три уровня данных
 
 | Уровень | Что входит | Где | Sharing |
 |---------|-----------|-----|---------|
-| **Global** | Таксономия: Module, Topic, Skill, Concept | PostgreSQL + Neo4j | Общий для всех tenant'ов |
-| **Shared** | Банк заданий, разметка LLM, агрегированная статистика | PostgreSQL + Neo4j | Общий, но авторство сохраняется |
-| **Isolated** | PII, ответы, mastery, группы, назначения | PostgreSQL (RLS) + Neo4j | Только внутри tenant'а |
+| **Global** | Таксономия: Module → Topic → Skill | Neo4j + PG (`skills`) | Общий для всех tenant'ов |
+| **Shared** | Банк заданий, разметки, агрегированная статистика | PG (`tasks`, `task_labels`, `task_stats`) | Общий, авторство сохраняется |
+| **Isolated** | PII, ответы, mastery, группы, назначения | PG (RLS) + Neo4j (`:Student`, `MASTERY`) | Только внутри tenant'а |
 
-**Правило:** всё, что описывает **контент** — shared. Всё, что привязано к **человеку** — isolated.
+**Правило:** всё, что описывает **контент**, — shared. Всё, что привязано к **человеку**, — isolated.
+
+### 2.2. Контексты применения
+
+| Контекст | Площадка | Модель |
+|----------|----------|--------|
+| Школьный | Лицей при ТПУ | Учитель + класс (`group.kind = 'class'`) |
+| Платформенный | ПолиУм | Репетитор + 1–10 учеников (`tutor_group`, `one_on_one`) |
+| Демо | Лендинг | Анонимный гость, TTL 24 ч |
+
+Ядро системы не зависит от контекста. Различается только организационная модель.
 
 ---
 
-## 4. Ключевые потоки данных
+## 3. Ключевые потоки данных
 
-### 4.1. Генерация персональных тестов (ядро системы)
-
-Самый важный сценарий. Показывает, как ML-модуль подбирает **уникальный
-набор заданий каждому ученику** за одно нажатие.
+### 3.1. Генерация персональных тестов (ядро системы)
 
 ```mermaid
 sequenceDiagram
-    participant U as Учитель
+    participant U as Учитель (PWA)
     participant API as Backend
-    participant DB as PostgreSQL
-    participant G as Neo4j
-    participant ML as ML-модуль
+    participant PG as PostgreSQL
+    participant N4J as Neo4j
+    participant ML as Scoring
 
-    U->>API: POST /generate/class/{id}<br/>{topic, count, deadline}
-    API->>DB: Получить учеников класса
-    DB-->>API: [student_1, student_2, ..., student_N]
+    U->>API: POST /assignments/generate<br/>{group_id, topic, n_tasks}
+    API->>PG: Ученики класса (active)
+    PG-->>API: [student_1 ... student_N]
 
-    loop Для каждого ученика
-        API->>G: Получить граф знаний ученика
-        G-->>API: mastery по всем навыкам
-        API->>ML: Подобрать N заданий
-        Note over ML: 1. Фильтр по теме<br/>2. Проверка prerequisite<br/>3. Оценка зоны ближайшего развития<br/>4. Scoring + разнообразие
-        ML-->>API: [task_5, task_12, task_33, ...]
+    API->>PG: Кандидаты по теме (join task_labels)
+    PG-->>API: [task, primary_skill, secondary, difficulty]
+
+    loop Для каждого ученика (shuffle)
+        API->>PG: Mastery ученика
+        PG-->>API: {skill_id: mastery}
+        API->>N4J: Проваленные prerequisite
+        N4J-->>API: blocked_skills
+
+        API->>ML: select_tasks_for_student(mastery, candidates)
+        Note over ML: 1. Отсев blocked primary<br/>2. IRT-scoring<br/>3. max_per_skill=2, max_per_band=2<br/>4. Diversity-штраф
+        ML-->>API: [N заданий]
     end
 
-    API-->>U: Превью: N персональных тестов
-    U->>API: POST /generate/confirm<br/>{assignments}
-    API->>DB: Сохранить assignments
+    API-->>U: Preview: N персональных наборов
+    U->>API: POST /assignments/save
+    API->>PG: INSERT assignments + students + tasks
+    API-->>U: assignment_id (draft)
+
+    U->>API: POST /assignments/{id}/send
+    API->>PG: UPDATE status='sent', sent_at=now()
     API-->>U: OK
-    Note over API: Ученики видят свои тесты в PWA
 ```
 
-**Ключевые шаги ML-подбора:**
+**Ключевые шаги подбора (assignments_service.py):**
 
-1. **Фильтр по теме.** Берём задания, связанные с навыками выбранной темы.
-2. **Проверка prerequisite.** Убираем задания, у которых не выполнены предпосылки (например, вложенные циклы при неосвоенном `for`).
-3. **Зона ближайшего развития.** Оцениваем сложность относительно mastery:
-   - слишком легко (mastery > 0.85) — не берём;
-   - слишком сложно (mastery < 0.2 по prerequisite) — не берём;
-   - оптимально (0.3 ≤ mastery ≤ 0.7) — приоритет.
-4. **Scoring.** Для каждого кандидата:
+1. **Фильтр по теме.** Задания, размеченные хотя бы на один навык темы.
+2. **Отсев по prerequisite.** Если у ученика mastery prerequisite < 0.5 — задание блокируется.
+3. **Взвешенная mastery.** `effective = 0.7 × mastery(primary) + 0.3 × avg(mastery(secondary))`.
+4. **IRT-подобный score:**
    ```
-   score(task) = expected_learning_gain
-               − risk_of_frustration
-               + diversity_bonus
-               − redundancy_penalty
+   p_correct = sigmoid(4 × (mastery − difficulty))
+   base = exp(−(p_correct − 0.7)² / 0.08)     ← пик при p ≈ 0.7
+   if mastery < 0.5: base *= 1.4               ← бонус слабым
+   score = base / (1 + 0.5 × usage_count)      ← diversity
    ```
-5. **Отбор N заданий.** Жадный алгоритм с учётом разнообразия (не все задачи на один навык).
+5. **Отбор с ограничениями:** ≤2 заданий на primary-навык, ≤2 в одну difficulty-полосу.
+6. **Добор** (если выбрано меньше N): два прохода — без band-ограничения, затем без всего.
 
-**Результат:** для класса из 25 учеников — 25 уникальных наборов.
+**Результат:** для класса из 25 учеников — 25 уникальных наборов. Слабые получают задания сложности 0.4–0.5, сильные — 0.75–0.85.
 
-### 4.2. Решение задания учеником
+### 3.2. Ответ ученика и обновление mastery
 
 ```mermaid
 sequenceDiagram
     participant S as Ученик (PWA)
     participant API as Backend
-    participant DB as PostgreSQL
-    participant G as Neo4j
-    participant ML as ML-модуль
+    participant PG as PostgreSQL
+    participant N4J as Neo4j
 
-    S->>API: GET /assignments/my
-    API-->>S: Активные тесты и задания
+    S->>API: POST /responses<br/>{task_id, assignment_id, answer}
+    API->>API: answers_equal(answer, expected)
+    API->>PG: INSERT responses
 
-    S->>API: GET /assignments/{id}/tasks
-    API-->>S: Список заданий
-
-    loop Решение задания
-        S->>API: POST /responses<br/>{task_id, answer}
-        API->>API: Нормализация (normalize.py)
-        API->>DB: Проверка правильности
-        API->>DB: INSERT response
-        API->>ML: Обновить mastery
-        ML->>DB: UPDATE student_mastery
-        ML->>G: UPDATE (Student)-[:MASTERY]->(Skill)
-        API-->>S: {correct, expected, explanation, new_mastery}
-        Note over S: Анимация обновления графа
+    API->>PG: Навыки задания (primary + secondary)
+    loop Для каждого навыка
+        API->>PG: Пересчёт mastery (взвешенный, сглаженный)
+        PG-->>API: new_mastery
+        API->>N4J: MERGE (Student)-[MASTERY]->(Skill)
+        Note over N4J: best-effort, не блокирует ответ
     end
 
-    S->>API: POST /assignments/{id}/complete
-    API-->>S: Итог + обновлённый граф
+    API->>PG: Автозакрытие assignment (если всё покрыто)
+    API-->>S: {correct, expected, new_mastery}
 ```
 
-### 4.3. Импорт CSV из Яндекс.Форм (fallback)
+**Формула mastery (responses_service.py):**
+
+- **Взвешенные attempts/correct:**
+  ```
+  w_attempts = Σ (1.0 если primary, 0.7 если secondary)
+  w_correct  = Σ (вес × correct)
+  ```
+- **Байесовское сглаживание:**
+  ```
+  mastery = (w_correct + 0.5 × 3) / (w_attempts + 3)
+  ```
+  При малом числе попыток значение тянется к 0.5. При большом — доверяем данным.
+
+- **В `student_mastery`** пишутся **сырые** `attempts` и `correct` (для отображения), а mastery — по взвешенным.
+
+**Синхронизация в Neo4j** — best-effort. Если Neo4j недоступен, ответ ученику всё равно возвращается.
+
+### 3.3. Разметка заданий через DeepSeek
 
 ```mermaid
 sequenceDiagram
-    participant U as Учитель
+    participant D as Разработчик
+    participant ML as label_tasks_with_deepseek
+    participant LLM as DeepSeek API
+    participant PG as PostgreSQL
+
+    D->>ML: python -m ml.label_tasks_with_deepseek
+    ML->>PG: Задания без разметки (LEFT JOIN по model='deepseek')
+    PG-->>ML: [task_XXX]
+
+    loop Батчи по 10 заданий
+        ML->>LLM: system_prompt + batch
+        LLM-->>ML: JSON {labels: [...]}
+        ML->>ML: Pydantic-валидация + проверка кодов
+        alt OK
+            ML->>PG: INSERT task_labels (primary + secondary)
+        else Fail
+            ML->>LLM: fallback — по одному заданию
+        end
+    end
+```
+
+**Параметры:**
+- Батч: 10 заданий, `temperature=0.2`, JSON mode.
+- Retry: 2 попытки на батч, затем fallback по одному.
+- Каждый батч — отдельная транзакция (не терять прогресс).
+
+### 3.4. Demo-режим (лендинг)
+
+```mermaid
+sequenceDiagram
+    participant G as Гость
     participant API as Backend
-    participant P as Парсер CSV
-    participant DB as PostgreSQL
-    participant ML as ML-модуль
+    participant LLM as DeepSeek
+    participant PG as PostgreSQL
 
-    U->>API: POST /ingest/csv (file)
-    API->>P: parse(path)
-    P->>P: Извлечь [task_XXX] из заголовков
-    P->>DB: get_or_create_student
-    loop Каждый ответ
-        P->>P: answers_equal(student, expected)
-        P->>DB: INSERT response
+    G->>API: POST /demo/start {description}
+    API->>API: rate_limit (5/час по IP)
+    API->>API: cleanup_old_demos (TTL 24 ч)
+    API->>LLM: Разбор описания → topic + known/unknown
+    LLM-->>API: {topic, skills_known, skills_unknown}
+    API->>PG: Создание гостя (tenant='demo')
+    API->>PG: Установка mastery (0.85 known / 0.15 unknown)
+    API->>PG: Генерация теста (5 заданий)
+    API-->>G: {session_id, topic, tasks}
+
+    loop Решение
+        G->>API: POST /demo/response {session_id, task_id, answer}
+        API-->>G: {correct, expected, new_mastery}
     end
-    P-->>API: Отчёт: N ответов импортировано
-    API->>ML: Пересчитать mastery
-    ML->>DB: UPDATE student_mastery
-    API-->>U: OK
+
+    G->>API: GET /demo/graph/{session_id}
+    API-->>G: Граф знаний гостя
 ```
 
-### 4.4. Разметка заданий через LLM
+**Особенности:**
+- Отдельный tenant `demo`, отдельная группа `dddddddd-…`.
+- Rate limit — in-memory `dict[ip, list[datetime]]`. **Точка роста:** Redis.
+- Cleanup — при каждом новом старте удаляются гости старше 24 ч.
+- Гость решает через тот же `responses_service.submit_response`.
+
+### 3.5. Регистрация ученика по коду класса
 
 ```mermaid
 sequenceDiagram
-    participant Dev as Разработчик
-    participant ML as ML-модуль
-    participant LLM as Ollama (Mistral)
-    participant DB as PostgreSQL
-    participant G as Neo4j
+    participant S as Ученик
+    participant API as Backend
+    participant PG as PostgreSQL
 
-    Dev->>ML: label_tasks.py
-    ML->>DB: Получить задания без разметки
-    loop Для каждого задания
-        ML->>LLM: prompt + task_text + taxonomy
-        LLM-->>ML: JSON {skills, difficulty, confidence}
-        ML->>ML: Валидация через Pydantic
-        ML->>DB: INSERT task_labels
-        ML->>G: MERGE (Task)-[:ASSESSES]->(Skill)
-    end
+    S->>API: GET /groups/by-code/{code}
+    API->>PG: SELECT group WHERE invite_code = code
+    API-->>S: {name, subject, teacher_name}
+
+    S->>API: POST /groups/join {code, full_name, email, password}
+    API->>PG: INSERT users (status='pending')
+    API->>PG: INSERT memberships (status='pending')
+    API-->>S: {status: 'pending'}
+
+    Note over S,PG: Учитель видит pending в TeacherClass
+
+    S->>API: (учитель) POST /groups/{gid}/approve/{sid}
+    API->>PG: UPDATE memberships SET status='active'
+    API->>PG: UPDATE users SET status='active'
 ```
 
 ---
 
-## 5. Backend (FastAPI)
+## 4. Backend (FastAPI)
 
-### 5.1. Структура
+### 4.1. Структура
 
 ```
 backend/
-├── main.py                  # точка входа, middleware
-├── config.py                # настройки из .env
+├── main.py                  # FastAPI app, lifespan, CORS, роутеры
+├── config.py                # Settings из .env (класс, не pydantic-settings)
+│
 ├── auth/
-│   ├── jwt.py               # генерация / проверка токенов
-│   └── deps.py              # зависимости (get_current_user)
+│   ├── security.py          # bcrypt, JWT (create/decode)
+│   └── dependencies.py      # get_current_user, require_teacher, require_student
+│
 ├── db/
-│   ├── postgres.py          # engine, session, tenant_session
-│   └── neo4j.py             # driver, query helpers
-├── api/
-│   ├── auth.py              # /auth/login, /auth/register
-│   ├── tasks.py             # /tasks
-│   ├── generate.py          # /generate/class, /generate/student
-│   ├── assignments.py       # /assignments
-│   ├── responses.py         # /responses
-│   ├── mastery.py           # /mastery
-│   ├── graph.py             # /graph/student
-│   └── ingest.py            # /ingest/csv
-├── services/
-│   ├── task_generator.py    # ядро: подбор заданий
-│   ├── mastery_service.py   # расчёт и обновление mastery
-│   ├── ingest_service.py    # CSV, API-ответы
-│   └── llm_labeler.py       # разметка через Ollama
-├── ml/
-│   ├── knowledge_tracing.py # BKT / DKT
-│   ├── scoring.py           # функция полезности задания
-│   └── bandit.py            # contextual bandit (позже)
-└── models/
-    ├── schemas.py           # Pydantic-схемы для API
-    └── domain.py            # доменные модели
+│   ├── postgres.py          # engine, SessionLocal, get_session, tenant_session
+│   └── neo4j.py             # driver, neo4j_session, ping, shutdown
+│
+├── api/                     # HTTP-роутеры (тонкие)
+│   ├── auth.py              # /auth/login, /logout, /me
+│   ├── tasks.py             # /tasks, /tasks/{id}, /tasks/topics
+│   ├── mastery.py           # /mastery/me, /student/{id}, /class/{id}
+│   ├── graph.py             # /graph/full, /student/{id}, /class/{id}
+│   ├── assignments.py       # /assignments/generate, save, send, my
+│   ├── responses.py         # /responses, /my, /task/{id}
+│   ├── groups.py            # /groups (CRUD + join + approve)
+│   └── demo.py              # /demo/start, /response, /graph
+│
+├── services/                # бизнес-логика (толстая)
+│   ├── tasks_service.py
+│   ├── mastery_service.py
+│   ├── graph_service.py     # Neo4j + PostgreSQL
+│   ├── assignments_service.py  # ядро: генератор тестов
+│   ├── responses_service.py    # ядро: проверка + mastery + Neo4j
+│   ├── groups_service.py
+│   └── demo_service.py
+│
+├── models/                  # Pydantic-схемы
+│   ├── common.py            # PaginatedResponse, Pagination
+│   ├── auth.py              # LoginRequest, TokenResponse
+│   ├── users.py             # UserResponse, MeResponse
+│   ├── tasks.py             # TaskResponse, TaskBrief, TaskLabel
+│   ├── assignments.py       # GenerateRequest, GeneratedTest, ...
+│   ├── responses.py         # ResponseCreate, StudentMastery, ...
+│   ├── graph.py             # GraphNode, GraphEdge, StudentGraph
+│   ├── groups.py            # GroupCreate, GroupDetail, ...
+│   └── demo.py              # DemoStartRequest, DemoTask, ...
+│
+└── Dockerfile
 ```
 
-### 5.2. Middleware (tenant)
+**Принцип:** роутер тонкий (валидация Pydantic + вызов сервиса), сервис — вся логика. SQL пишется прямо в сервисах через SQLAlchemy `text()`.
 
-Каждый запрос проходит через middleware, который:
+### 4.2. Multi-tenancy через RLS
 
-1. Извлекает JWT из заголовка.
-2. Проверяет подпись и срок действия.
-3. Достаёт `tenant_id` из claims.
-4. Открывает сессию БД и выполняет `SET app.current_tenant = ...`.
-5. Передаёт управление роутеру.
+Все isolated-таблицы защищены Row-Level Security. Backend в начале каждой сессии выполняет:
+
+```sql
+SET LOCAL app.current_tenant = '<tenant_id>';
+```
+
+`SET LOCAL` работает в пределах транзакции. При возврате соединения в пул переменная сбрасывается — это **критично**, без `LOCAL` значение могло бы «протечь» в следующий запрос.
+
+Реализовано в `backend/db/postgres.py`:
 
 ```python
-@app.middleware("http")
-async def tenant_middleware(request, call_next):
-    token = extract_token(request)
-    if token:
-        payload = decode_jwt(token)
-        tenant_id = payload["tenant_id"]
-        request.state.tenant_id = tenant_id
-        request.state.user_id = payload["sub"]
-        request.state.role = payload["role"]
-    return await call_next(request)
+@contextmanager
+def tenant_session(tenant_id: str):
+    session = SessionLocal()
+    try:
+        session.begin()
+        session.execute(
+            text("SELECT set_config('app.current_tenant', :t, true)"),
+            {"t": tenant_id},
+        )
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 ```
 
-### 5.3. Роутеры (эндпоинты верхнего уровня)
+### 4.3. Аутентификация
 
-| Метод | Путь | Назначение |
-|-------|------|-----------|
-| POST | `/auth/login` | Логин, возврат JWT |
-| POST | `/auth/register` | Регистрация (учитель) |
-| GET | `/tasks` | Список заданий (с фильтрами) |
-| POST | `/tasks` | Создать задание |
-| POST | `/tasks/{id}/label` | Разметить через LLM |
-| POST | `/generate/class/{id}` | **Генерация теста для класса** |
-| POST | `/generate/student/{id}` | Генерация для одного ученика |
-| POST | `/generate/confirm` | Подтвердить и отправить |
-| GET | `/assignments/my` | Задания текущего ученика |
-| GET | `/assignments/{id}/tasks` | Задания конкретного теста |
-| POST | `/responses` | Отправить ответ |
-| GET | `/mastery/student/{id}` | Mastery ученика |
-| GET | `/mastery/class/{id}` | Mastery класса |
-| GET | `/graph/student/{id}` | Граф знаний ученика |
-| POST | `/ingest/csv` | Загрузить CSV из Я.Форм |
+- **JWT** в httpOnly cookies (`hyperum_access` 1 ч, `hyperum_refresh` 30 дней) **+** Bearer-токен в JSON (для интеграций).
+- **Пароли** — bcrypt.
+- **Роли:** `owner`, `student`, `admin`.
+- **Зависимости:** `get_current_user`, `require_teacher`, `require_student`.
+
+**Cookies:**
+```python
+COOKIE_COMMON = {
+    "httponly": True,       # JS не читает
+    "secure": False,        # True в проде (сейчас HTTP-дев)
+    "samesite": "lax",      # защита от CSRF
+}
+```
+
+**Важно:** `secure=False` сейчас, при деплое на HTTPS — обязательно `True`.
 
 ---
 
-## 6. Приложение ученика (PWA)
+## 5. PWA (ученик + учитель)
 
-### 6.1. Стек
+Один Vite-билд, роутинг по ролям.
 
-| Компонент | Технология |
-|-----------|-----------|
-| Фреймворк | React 18 + Vite |
-| Роутинг | React Router |
-| Состояние | Zustand или Redux Toolkit |
-| HTTP | Axios / fetch |
+### 5.1. Стек
+
+| Слой | Технология |
+|------|-----------|
+| Фреймворк | React 18 |
+| Сборка | Vite |
 | Стили | Tailwind CSS |
-| Граф | Cytoscape.js |
-| PWA | vite-plugin-pwa |
+| Состояние | Zustand (`authStore`) |
+| Data fetching | TanStack Query |
+| HTTP | Axios |
+| Граф | Cytoscape.js + cytoscape-dagre |
+| PWA | vite-plugin-pwa (workbox, autoUpdate) |
+| Роутинг | React Router |
 
-### 6.2. Структура
-
-```
-pwa/
-├── public/
-│   ├── manifest.json        # PWA-манифест
-│   └── icons/               # иконки для домашнего экрана
-├── src/
-│   ├── main.tsx
-│   ├── App.tsx
-│   ├── api/                 # клиент REST API
-│   ├── stores/              # состояние (auth, assignments)
-│   ├── pages/
-│   │   ├── Login.tsx
-│   │   ├── Dashboard.tsx    # активные тесты + граф
-│   │   ├── TaskSolve.tsx    # решение задания
-│   │   ├── Graph.tsx        # граф знаний
-│   │   └── History.tsx      # история
-│   └── components/
-│       ├── GraphView.tsx    # Cytoscape.js
-│       ├── TaskCard.tsx
-│       └── Feedback.tsx     # обратная связь после ответа
-└── vite.config.ts
-```
-
-### 6.3. Экраны
-
-| Экран | Что показывает |
-|-------|---------------|
-| **Login** | Логин / вход по коду класса |
-| **Dashboard** | Активные тесты, граф, прогресс |
-| **TaskSolve** | Текущее задание, ввод ответа, feedback |
-| **Graph** | Полный граф знаний с раскраской |
-| **History** | История ответов и прогресс |
-
-### 6.4. Визуализация графа
-
-- **Cytoscape.js** с layout `dagre` (иерархия) или `cose` (force-directed).
-- **Цвета:** 🟢 mastery > 0.8 · 🟡 0.4–0.8 · 🔴 < 0.4 · ⚪ не изучено.
-- **Клик на узел:** карточка навыка с описанием, mastery, попытками.
-- **Анимация:** после ответа узел меняет цвет через CSS-transition.
-
----
-
-## 7. Дашборд учителя
-
-### 7.1. Первая версия — Streamlit
-
-Быстро, без фронтенд-разработки. Запускается как отдельный процесс.
+### 5.2. Структура
 
 ```
-dashboard/
-├── app.py                   # главный экран
-├── pages/
-│   ├── 1_Class_Overview.py  # тепловая карта класса
-│   ├── 2_Generate_Test.py   # генерация теста
-│   ├── 3_Student_Profile.py # профиль ученика
-│   └── 4_Ingest_CSV.py      # загрузка ответов
+pwa/src/
+├── App.tsx                  # роутинг по ролям
+├── main.tsx
+├── index.css                # tailwind + кастомные утилиты
+│
+├── api/                     # axios-клиент + типы
+│   ├── client.ts            # baseURL='/api/v1', withCredentials
+│   ├── auth.ts
+│   ├── assignments.ts
+│   ├── responses.ts
+│   ├── mastery.ts
+│   ├── graph.ts
+│   ├── groups.ts
+│   └── demo.ts
+│
+├── stores/
+│   └── authStore.ts         # Zustand
+│
+├── hooks/
+│   └── useSwipeBack.ts      # edge-swipe навигация
+│
 ├── components/
-│   ├── heatmap.py           # plotly heatmap
-│   ├── graph_view.py        # Neo4j + streamlit-agraph
-│   └── task_preview.py      # превью сгенерированного теста
-└── api_client.py            # клиент Backend API
+│   ├── GraphView.tsx        # Cytoscape
+│   ├── SkillCard.tsx        # модалка навыка
+│   ├── AssignmentCard.tsx
+│   ├── MasteryList.tsx
+│   ├── Header.tsx
+│   ├── ProtectedRoute.tsx
+│   └── teacher/
+│       ├── GroupCard.tsx
+│       ├── StudentRow.tsx
+│       ├── PendingStudentCard.tsx
+│       └── InviteCodeBlock.tsx
+│
+└── pages/
+    ├── Landing.tsx          # публичный + demo-виджет
+    ├── Login.tsx
+    ├── Join.tsx             # регистрация по коду
+    ├── Dashboard.tsx        # ученик
+    ├── Assignment.tsx       # решение теста
+    ├── Graph.tsx            # граф знаний
+    ├── History.tsx          # история ответов
+    ├── DemoTest.tsx         # demo-сценарий
+    └── teacher/
+        ├── TeacherDashboard.tsx
+        ├── TeacherClass.tsx
+        └── TeacherGenerate.tsx
 ```
 
-**Почему Streamlit:**
-- 2–3 дня vs 2–3 недели для React.
-- Идеально для дашбордов.
-- Хорошо смотрится на защите.
+### 5.3. Ключевые UX-решения
 
-**Минусы:**
-- Не продакшн-уровень.
-- Ограниченная кастомизация.
-- В v0.2 можно заменить на React.
+- **Мобильный-first:** safe-area, фиксированная нижняя панель, edge swipe.
+- **Индикатор прогресса** — точки-полоски в шапке (пройденные/текущий/непройденные).
+- **Сдача задания** — модальное подтверждение, `surrendered=true`.
+- **Восстановление прогресса** — `previous_response` в `assignment_tasks` (per-student).
+- **Авто-редирект по ролям** — `ProtectedRoute` + `homeRedirect`.
+- **PWA-манифест:** standalone, portrait, иконки 192/512.
 
-### 7.2. Вторая версия — React
+### 5.4. Визуализация графа (Cytoscape.js)
 
-Если будет время, дашборд учителя переносится на React с тем же стеком,
-что и PWA. Единый дизайн, единая авторизация, единый API-клиент.
-
----
-
-## 8. ML-модуль
-
-### 8.1. Задачи
-
-| Задача | Метод | Где используется |
-|--------|-------|------------------|
-| Оценка mastery по навыку | BKT / DKT | После каждого ответа |
-| Прогноз вероятности правильного ответа | IRT / логистическая регрессия | При подборе заданий |
-| Scoring заданий для подбора | Функция полезности | Генерация теста |
-| Прогноз проблемных зон | Кластеризация / DKT | Дашборд учителя |
-| Персонализация | Contextual bandit | Рекомендации (позже) |
-
-### 8.2. Baseline (для MVP)
-
-1. **Mastery** = `correct / attempts` по навыку.
-2. **Сложность задания** — из разметки (LLM или вручную).
-3. **Scoring** — по правилам:
-   - приоритет заданиям с mastery в [0.3, 0.7];
-   - исключение заданий с невыполненными prerequisite;
-   - ограничение на разнообразие (не больше 2 заданий на один навык).
-4. **Рекомендация** — из топ-3 по score, случайный выбор.
-
-### 8.3. Развитие
-
-1. **Knowledge tracing** (BKT): учитываем забывание, перенос.
-2. **DKT**: нейросетевая модель последовательности ответов.
-3. **GNN на графе**: состояние ученика + структура prerequisite.
-4. **Contextual bandit**: обучение на реальных данных пилота.
-
-### 8.4. Где живёт ML
-
-**Решение:** ML-модуль — **внутри backend** как Python-модуль, не отдельный сервис.
-
-**Почему:**
-- Один разработчик — проще.
-- Нет сетевых задержек.
-- Легко тестировать.
-- Легко потом вынести в отдельный сервис, если понадобится.
+- Layout: `dagre` (иерархия).
+- Цвета: 🟢 mastered (≥0.8) · 🟡 learning (0.5–0.8) · 🔴 weak (<0.5) · ⚪ unknown.
+- Клик на узел → `SkillCard` с описанием.
+- Тумблер «показать неизученные».
 
 ---
 
-## 9. Multi-tenancy
+## 6. PostgreSQL
 
-### 9.1. Уровни изоляции
+**Версия:** 16  
+**Роль:** транзакционные данные + RLS.
 
-| Уровень | Что | Где |
-|---------|-----|-----|
-| **Global** | Таксономия | `tenant_id = 'global'` |
-| **Shared** | Банк заданий, разметка | `visibility = 'shared'` или `author_tenant` |
-| **Isolated** | Пользователи, ответы, mastery | `tenant_id` обязателен + RLS |
+### 6.1. Ключевые таблицы
 
-### 9.2. Реализация в PostgreSQL
+Полная схема — в `data-model.md`. Кратко:
 
-1. **Колонка `tenant_id`** во всех isolated-таблицах.
-2. **RLS-политики**:
-   ```sql
-   CREATE POLICY tenant_isolation ON responses
-     USING (tenant_id = current_setting('app.current_tenant', true));
-   ```
-3. **`FORCE ROW LEVEL SECURITY`** — чтобы политика действовала и для владельца.
-4. **Backend** выставляет `SET app.current_tenant` при открытии сессии.
+| Группа | Таблицы |
+|--------|---------|
+| Tenancy | `tenants` |
+| Таксономия | `skills` |
+| Банк заданий | `tasks`, `task_labels`, `task_stats` |
+| Пользователи | `users`, `groups`, `memberships` |
+| Учебный процесс | `assignments`, `assignment_students`, `assignment_tasks` |
+| Ответы и оценки | `responses`, `student_mastery` |
 
-### 9.3. Реализация в Neo4j
+### 6.2. Индексы
 
-1. **Свойство `tenant_id`** на узлах `Student` и на рёбрах `MASTERY`.
-2. **Таксономия** имеет `tenant_id = 'global'`.
-3. **Каждый запрос** фильтрует по tenant:
-   ```cypher
-   MATCH (st:Student {id: $sid, tenant_id: $tenant_id})
-         -[m:MASTERY]->(s:Skill)
-   RETURN s.id, m.value
-   ```
+- `responses(tenant_id, student_id)` — для истории ученика.
+- `responses(task_id)` — для статистики.
+- `task_labels(task_id, model)` — для primary-навыков.
+- `groups(tenant_id, name)` unique где `kind='class'` — уникальность имени класса.
+- `groups(invite_code)` unique — быстрый поиск по коду.
+- `users(email)` — для логина.
 
-### 9.4. Архитектурный принцип
+### 6.3. Миграции
 
-Ядро **не знает**, что такое «школа» или «платформа». Оно знает только
-`tenant_id` и роли (`owner`, `student`, `admin`). Различия между школой
-и платформой — в конфигурации tenant'а, а не в коде.
+18 нумерованных файлов в `migrations/`. Запускаются скриптом `scripts/migrate.ps1`.
+
+Порядок важен, применяется идемпотентно.
 
 ---
 
-## 10. Безопасность
+## 7. Neo4j
 
-### 10.1. Аутентификация
+**Версия:** 5  
+**Роль:** структура графа знаний + связи prerequisite.
 
-- **JWT** с коротким сроком жизни (15 мин) + **refresh token** (30 дней).
-- В claims: `sub` (user_id), `tenant_id`, `role`.
-- Пароли — **bcrypt** (или argon2).
+### 7.1. Модель
 
-### 10.2. Авторизация
-
-- **RBAC**: owner / student / admin.
-- Проверка прав на уровне роутера через зависимости FastAPI.
-- RLS в БД как второй рубеж.
-
-### 10.3. PII
-
-- PII (ФИО, email) — только в таблице `users` (isolated).
-- В Neo4j — только UUID, без PII.
-- **Анонимизация** для ML: работаем с `student_id`, не с ФИО.
-
-### 10.4. 152-ФЗ
-
-- Согласие родителей (школа) / оферта (платформа).
-- Хранение данных на территории РФ.
-- Возможность удаления учётной записи.
-- Логирование доступа к PII.
-
----
-
-## 11. Развёртывание
-
-### 11.1. Docker Compose (dev и prod)
-
-```yaml
-services:
-  postgres:
-    image: postgres:16
-    # ...
-  neo4j:
-    image: neo4j:5
-    # ...
-  backend:
-    build: ./backend
-    ports: ["8000:8000"]
-    depends_on: [postgres, neo4j]
-  pwa:
-    build: ./pwa
-    ports: ["3000:80"]
-  dashboard:
-    build: ./dashboard
-    ports: ["8501:8501"]
+```cypher
+(:Module {name})-[:CONTAINS]->(:Topic {name})-[:CONTAINS]->(:Skill {id, name, difficulty})
+(:Skill)-[:PREREQUISITE]->(:Skill)
+(:Student {id, tenant_id})-[:MASTERY {value, attempts, correct, updated_at}]->(:Skill)
 ```
 
-**Ollama** — вне Docker, чтобы работать с GPU напрямую.
+### 7.2. Что хранит и что нет
 
-### 11.2. Окружения
+| Данные | Где живёт |
+|--------|-----------|
+| Структура графа (модули, темы, навыки, prerequisite) | **Neo4j** |
+| Mastery ученика (источник истины) | **PostgreSQL** (`student_mastery`) |
+| Mastery ученика (копия для визуализации) | Neo4j, ребро `MASTERY` |
 
-| Окружение | Где | Назначение |
-|-----------|-----|-----------|
-| **dev** | Локально, Windows | Разработка |
-| **pilot** | Сервер университета | Пилот в лицее |
-| **prod** | Облако РФ (позже) | Платформа |
+**Итого:** Neo4j — источник **структуры**, PostgreSQL — источник **оценок**. При чтении графа (`graph_service.get_student_graph`) структура берётся из Neo4j, mastery навешивается из PostgreSQL.
 
-### 11.3. CI/CD
+### 7.3. Проверка prerequisite
 
-- **GitHub Actions** — линтер, тесты, сборка Docker-образов.
-- **Деплой** — вручную на первом этапе, автоматизация позже.
+При генерации теста `assignments_service.get_weak_prerequisites` запрашивает Neo4j:
+
+```cypher
+MATCH (st:Student {id: $stid})-[m:MASTERY]->(pre:Skill)
+WHERE m.value < 0.5
+MATCH (pre)-[:PREREQUISITE]->(target:Skill)
+WHERE target.id IN $sids
+RETURN DISTINCT target.id AS blocked
+```
+
+При недоступности Neo4j — возвращает пустое множество (все задания доступны).
+
+### 7.4. Best-effort sync
+
+`responses_service.sync_mastery_to_neo4j` обёрнут в `try/except`. Ошибка не ломает ответ ученику.
 
 ---
 
-## 12. Стек (сводка)
+## 8. Разметка заданий
 
-| Слой | Технология | Обоснование |
-|------|-----------|-------------|
-| Backend | FastAPI + Python 3.11 | Быстрый, async, OpenAPI из коробки |
-| БД (транзакции) | PostgreSQL 16 | Надёжно, RLS, JSONB |
-| БД (граф) | Neo4j 5 | Естественно для графов, визуализация |
-| ML | scikit-learn, PyTorch | Стандарт |
-| LLM | Ollama + Mistral 7B | Локально, без облака |
-| PWA | React + Vite + Tailwind | Один код для всех экранов |
-| Граф UI | Cytoscape.js | Мощный, гибкий |
-| Дашборд | Streamlit | Быстро для MVP |
-| Инфра | Docker Compose | Просто, кросс-платформенно |
-| Auth | JWT + bcrypt | Стандарт |
+### 8.1. Pipeline
+
+```
+CSV с заданиями
+    │
+    ▼
+scripts/import_tasks.py  →  INSERT INTO tasks (code, text, answer, type)
+    │
+    ▼
+ml/label_tasks_with_deepseek.py  →  INSERT INTO task_labels
+    │
+    ▼
+ml/normalize_difficulty.py  →  UPDATE task_labels.difficulty
+```
+
+### 8.2. Multi-skill
+
+Одна разметка = один навык. Одно задание → 1 primary + 0–2 secondary.
+
+**В `task_labels`:**
+- PK: `(task_id, skill_id, model)`
+- `is_primary BOOLEAN` — флаг главного.
+
+### 8.3. Модели LLM
+
+| Модель | Файл | Статус |
+|--------|------|--------|
+| DeepSeek (`deepseek-chat`) | `label_tasks_with_deepseek.py` | **актуально** |
+| GigaChat | `label_tasks_with_gigachat.py` | устарело, оставлено как референс |
+
+**Общие параметры DeepSeek:**
+- Batch size: 10 заданий.
+- Retry: 2 попытки на батч, затем fallback по одному.
+- `temperature=0.2`, `response_format=json_object`.
+
+### 8.4. Нормализация сложностей
+
+LLM склонны кластеризовать difficulty в узком диапазоне (0.4–0.6).  
+`ml/normalize_difficulty.py` растягивает распределение к равномерному.
+
+---
+
+## 9. Оценка mastery (baseline)
+
+**Важно:** описанное ниже — это **baseline**, работающий сейчас. В рамках
+научной части ВКР он будет заменён на BKT → graph-BKT (см. `research.md`,
+раздел 6). Пока это источник истины для прода и точка отсчёта для
+сравнения.
+
+### 9.1. Формула
+
+```python
+PRIOR = 0.5      # сглаживание к среднему
+WEIGHT = 3.0     # виртуальных попыток
+
+def smoothed_mastery(w_correct, w_attempts):
+    return (w_correct + PRIOR * WEIGHT) / (w_attempts + WEIGHT)
+```
+
+### 9.2. Веса
+
+| Тип навыка | Вес |
+|-----------|-----|
+| primary | 1.0 |
+| secondary | 0.7 |
+
+**Почему:** primary-навык задание проверяет по существу, secondary — задействован попутно. Полный вес secondary исказил бы картину.
+
+### 9.3. Обновление
+
+При каждом ответе `update_mastery(session, tenant_id, student_id, skill_id)`:
+1. Собирает взвешенные attempts/correct по всем ответам ученика на этот навык.
+2. Считает сглаженный mastery.
+3. Upsert в `student_mastery`.
+4. Синк ребра `MASTERY` в Neo4j.
+
+### 9.4. Отображение
+
+| Диапазон | Статус | Цвет |
+|----------|--------|------|
+| ≥0.8 | mastered | 🟢 |
+| 0.5–0.8 | learning | 🟡 |
+| <0.5 | weak | 🔴 |
+| не изучалось | unknown | ⚪ |
+
+---
+
+## 10. Развёртывание
+
+### 10.1. Прод
+
+- **Хост:** VPS, домен `hyperum.polyum.ru`.
+- **Nginx** — статика PWA + reverse proxy на backend (`127.0.0.1:8000`).
+- **Docker Compose prod** — три сервиса: `postgres`, `neo4j`, `backend`.
+- **Секреты** — в `.env` на VPS, не в git.
+- **Деплой:** `scripts/deploy.sh` — `git pull` → `docker compose -f docker-compose.prod.yml build backend` → `up -d` → health check.
+
+### 10.2. Backend Dockerfile
+
+Базовый образ — `python:3.11-slim`. Устанавливаются **только backend-зависимости** из `requirements-backend.txt` (без Streamlit/plotly/matplotlib). Копируются `backend/`, `ml/`, `ingest/`, `scripts/`, `taxonomy/`, `migrations/`, `tasks/`.
+
+### 10.3. Dev
+
+Локально на Windows: Docker Compose (только БД), backend `uvicorn --reload`, PWA `npm run dev` (Vite-прокси `/api → localhost:8000`).
+
+---
+
+## 11. Технические ограничения и техдолг
+
+| Проблема | Где | Приоритет |
+|----------|-----|-----------|
+| Хардкод `tenant_id='school_lyceum'` в `save_assignment` | `assignments_service.py` | MUST |
+| Хардкод `tenant_id` в `sync_mastery_to_neo4j` | `responses_service.py` | MUST |
+| Neo4j не фильтрует граф по tenant | `graph_service._fetch_full_graph` | SHOULD |
+| Rate limit demo — in-memory, теряется при рестарте | `demo_service.py` | SHOULD (Redis) |
+| Нет бэкапов БД | инфра | MUST |
+| Cookies `secure=False` | `auth.py` | MUST (в прод) |
+| Нет `POST /auth/refresh` | `auth.py` | SHOULD |
+| Streamlit-дашборд не удалён | `dashboard/` | COULD |
+| Нет бэкапов БД перед обучением модели | инфра | MUST |
+| Нет пайплайна обучения BKT | — | MUST (декабрь) |
+| Нет A/B-инфраструктуры (флаг эксперимента) | — | MUST (февраль) |
+
+---
+
+## 12. Научная дорожная карта
+
+Архитектура развивается в четыре фазы. Каждая фаза — самостоятельный
+шаг, дающий результат в ВКР.
+
+### Фаза 0 — работающая система (✅ октябрь 2026)
+
+- Ядро, генератор, PWA, demo.
+- Пилот в лицее: 3 класса, 67 учеников.
+- **Цель фазы:** сбор данных. Никакой ML не обучается.
+- **Артефакт:** `responses` + `student_mastery` + `assignments`.
+
+### Фаза 1 — BKT (🔴 декабрь 2026)
+
+- Обучение Bayesian Knowledge Tracing на данных пилота.
+- Замена эвристического mastery на предсказание BKT.
+- **Гипотеза H2:** BKT точнее эвристики (AUC).
+- **Метрика:** AUC предсказания правильного ответа на отложенной выборке.
+- **Артефакт:** скрипт обучения + модель + сравнение с baseline.
+
+### Фаза 2 — Graph-BKT (🔴 январь 2027)
+
+- Учёт prerequisite-связей между навыками при оценке.
+- «Заимствование» статистики у связанных навыков.
+- **Гипотеза H3:** graph-BKT точнее на редких навыках.
+- **Метрика:** AUC на подмножестве навыков с <5 ответов на ученика.
+- **Артефакт:** graph-aware модель + сравнение с H2.
+
+**Это ключевая научная фаза ВКР.**
+
+### Фаза 3 — A/B (🔴 февраль–март 2027)
+
+- Внедрение graph-BKT в прод.
+- A/B тест: контрольная группа учится по эвристике, экспериментальная —
+  по graph-BKT.
+- **Гипотеза H4:** гиперперсонализация даёт прирост.
+- **Метрика:** Δ mastery, time-to-mastery, вовлечённость.
+- **Артефакт:** A/B-отчёт.
+
+### Фаза 4 — переносимость (🔴 апрель 2027)
+
+- Пилот на ПолиУМе.
+- **Гипотеза H5:** ядро не зависит от контекста.
+- **Артефакт:** подтверждение переносимости.
 
 ---
 
 ## 13. Что дальше
 
-Документы, которые дополняют архитектуру:
+Документы, дополняющие архитектуру:
 
-1. **`docs/data-model.md`** — детальная схема всех таблиц и узлов графа.
-2. **`docs/api.md`** — OpenAPI-спецификация эндпоинтов.
-3. **`docs/ml.md`** — детали ML-модуля: модели, фичи, метрики.
-4. **`docs/deployment.md`** — как разворачивать на сервере.
+- [`glossary.md`](glossary.md) — словарь терминов.
+- [`data-model.md`](data-model.md) — детальная схема PostgreSQL + Neo4j.
+- [`ml.md`](ml.md) — ML-модуль: scoring, mastery, разметка, roadmap.
+- [`research.md`](research.md) — **научная рамка ВКР** (гипотезы, метрики).
+- [`api.md`](api.md) — обзор REST API.
+- [`user-flows.md`](user-flows.md) — сценарии по ролям.
+- [`deployment.md`](deployment.md) — развёртывание.
+- [`decisions.md`](decisions.md) — 16 ADR.
 
 ---
 
@@ -597,4 +795,6 @@ services:
 
 | Версия | Дата | Что изменилось |
 |--------|------|----------------|
-| 0.1 | 2026-09 | Первая версия |
+| 0.1 | 2026-09 | Первая версия (Streamlit, нет PWA) |
+| 1.0 | 2026-10 | Актуализация: PWA заменяет Streamlit, demo-режим, IRT-scoring, multi-skill mastery |
+| 1.1 | 2026-10 | Финальные правки: научная цель, фазы 0–4, ссылки на research.md |

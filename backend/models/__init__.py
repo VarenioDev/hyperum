@@ -15,7 +15,7 @@ from backend.models.assignments import (
 )
 from backend.models.responses import (
     ResponseCreate, ResponseResult, ResponseResponse,
-    MasteryItem, StudentMastery, ClassMasteryItem,
+    MasteryItem, StudentMastery, ClassMasteryItem, MasterySummary,
 )
 from backend.models.graph import (
     GraphNode, GraphEdge, StudentGraph, ClassGraph,
@@ -32,7 +32,7 @@ __all__ = [
     "AssignmentForStudent", "SaveAssignmentRequest",
     "ResponseCreate", "ResponseResult", "ResponseResponse",
     "MasteryItem", "StudentMastery", "ClassMasteryItem",
-    "GraphNode", "GraphEdge", "StudentGraph", "ClassGraph",
+    "GraphNode", "GraphEdge", "StudentGraph", "ClassGraph", "MasterySummary",
 ]
 
 from backend.models.groups import (

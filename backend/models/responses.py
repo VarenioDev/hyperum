@@ -88,3 +88,16 @@ class TaskStat(BaseModel):
     correct: int
     success_rate: float
     skill_id: str | None = None
+
+class MasterySummary(BaseModel):
+    """Краткая сводка mastery ученика для дашборда."""
+    total_skills: int = Field(..., description="Навыков с attempts > 0")
+    mastered: int = Field(..., description="mastery >= 0.8")
+    learning: int = Field(..., description="0.5 <= mastery < 0.8")
+    weak: int = Field(..., description="mastery < 0.5")
+    avg_mastery: float = Field(..., ge=0.0, le=1.0, description="Средний mastery по встречавшимся")
+    responses_last_14d: int = Field(..., description="Ответов за последние 14 дней")
+    top_weak_skills: list[MasteryItem] = Field(
+        default_factory=list,
+        description="Топ-3 самых слабых навыка",
+    )

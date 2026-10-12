@@ -1,81 +1,126 @@
-# HyperUm
+# 🧠 HyperUm
 
-Система гиперперсонализации образовательного процесса
-на основе графов знаний и ML-моделей.
+**Система гиперперсонализации образовательного процесса
+на основе графов знаний и ML-моделей.**
 
-**ВКР бакалавра** · 09.03.02 «Информационные системы и технологии»
-Профиль: Машинное обучение и искусственный интеллект
-Тема: «Система гиперперсонализации образовательного процесса
-на основе графов знаний и ML-моделей»
+> Одна кнопка — N персональных тестов для N учеников.
 
-**Статус:** MVP работает. Апробация в лицее при ТПУ идёт.
+[![ВКР](https://img.shields.io/badge/ВКР-09.03.02-blue)]()
+[![Статус](https://img.shields.io/badge/статус-пилот%20идёт-green)]()
+[![Деплой](https://img.shields.io/badge/prod-hyperum.polyum.ru-success)](https://hyperum.polyum.ru)
+[![Python](https://img.shields.io/badge/python-3.11+-blue)]()
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.1-009688)]()
+[![React](https://img.shields.io/badge/React-18-61dafb)]()
+
+**Развёрнуто:** https://hyperum.polyum.ru  
+**Апробация:** Лицей при ТПУ · 3 класса · 67 учеников  
+**ВКР:** бакалаврская работа, ТПУ, 2026–2027
 
 ---
 
 ## Что это
 
-HyperUm — интеллектуальный ассистент учителя. Система:
+HyperUm — **интеллектуальный ассистент учителя**. Система:
 
-- ведёт банк заданий с разметкой по навыкам и сложности (автоматически через LLM);
-- принимает ответы учеников (Яндекс.Формы + PWA в разработке);
-- автоматически проверяет ответы и считает mastery по каждому навыку;
-- **генерирует персональные тесты** — каждому ученику свой набор заданий;
-- показывает учителю дашборд: кто что знает, где проблемы;
-- даёт ученику приложение с его графом знаний.
+- ведёт банк заданий с multi-skill разметкой через LLM (DeepSeek);
+- принимает ответы учеников через PWA и Яндекс.Формы;
+- автоматически проверяет ответы, считает mastery по каждому навыку;
+- **генерирует персональные тесты** — каждому ученику свой набор;
+- показывает учителю, кто что знает и где проблемы;
+- даёт ученику граф знаний с раскраской по освоению.
 
-Ключевое отличие от аналогов (Учи.ру, ЯКласс): система **не заменяет**
-учителя и **не раздаёт** всем одинаковые задания. Учитель задаёт тему,
-жмёт кнопку — получает **N персональных тестов для N учеников**.
+**Ключевое отличие** от Учи.ру, ЯКласс и подобных: система **не заменяет**
+учителя и **не раздаёт** всем одинаковые задания. Учитель задаёт тему, жмёт
+кнопку — получает **N персональных тестов для N учеников** с опорой
+на граф знаний каждого.
 
 ---
 
-## Архитектура
+## Научная цель (для ВКР)
+
+HyperUm — это **не просто продукт**. Это **фабрика данных** для обучения
+модели, которая должна **заменить эвристический подбор заданий**
+на обученный на реальных данных.
+
+**Текущее состояние (baseline):**
+
+- Mastery считается формулой: взвешенный `correct / attempts` + сглаживание.
+- Подбор заданий — IRT-подобная функция полезности (эвристика).
+- Prerequisite-фильтр — порог mastery < 0.5.
+
+**Что делаем дальше:**
+
+1. **Фаза 1 (декабрь 2026).** Обучаем **BKT** (Bayesian Knowledge Tracing)
+   на данных пилота. Проверяем гипотезу **H2:** BKT точнее эвристики
+   в предсказании правильного ответа.
+2. **Фаза 2 (январь 2027).** Делаем BKT **граф-осознанным**:
+   учитываем prerequisite-связи между навыками. Проверяем гипотезу **H3:**
+   graph-BKT точнее на редких навыках (где у ученика мало ответов).
+3. **Фаза 3 (февраль–март 2027).** Внедряем в прод + **A/B тест**
+   гиперперсонализации. Проверяем **H4:** обученная модель даёт прирост
+   освоения материала.
+
+**Почему это научно:** граф-aware Knowledge Tracing — активная область
+исследований (GKT, DGEKT, HiTKT). Мы применяем её к **реальной школьной
+системе** с 67 живыми учениками, что даёт прикладной вклад.
+
+Полная научная рамка — в [`docs/research.md`](docs/research.md).
+
+---
+
+## Ключевые фичи
+
+| Фича | Что делает | Статус |
+|------|-----------|--------|
+| 🎯 **Генерация персональных тестов** | Одно нажатие → N уникальных наборов | ✅ |
+| 🌳 **Граф знаний** | Prerequisite-связи, визуализация (Cytoscape) | ✅ |
+| 🤖 **LLM-разметка** | DeepSeek автоматически размечает задания | ✅ |
+| 📊 **Mastery по навыкам** | Взвешенный, сглаженный, обновляется онлайн | ✅ |
+| 📱 **PWA для ученика** | Устанавливается на домашний экран | ✅ |
+| 👩‍🏫 **Кабинет учителя** | Классы, генерация, approve учеников | ✅ |
+| 🔗 **Инвайт-коды** | Ученики регистрируются сами | ✅ |
+| 🎨 **Demo-режим** | Гость получает тест без регистрации | ✅ |
+| 🧠 **BKT / graph-BKT** | Заменяет эвристический mastery | 🔴 (в планах) |
+
+---
+
+## Скриншоты
+
+> _Скриншоты будут добавлены в финальной версии ВКР._
+> Публичный demo: https://hyperum.polyum.ru
 
 ```
-              ┌─────────────────────┐
-              │   taxonomy/*.yaml   │  ← источник истины
-              └──────────┬──────────┘
-                         │
-              ┌──────────┴──────────┐
-              ▼                     ▼
-        ┌───────────┐         ┌──────────┐
-        │ PostgreSQL│         │  Neo4j   │
-        │           │         │          │
-        │  tasks    │         │  Module  │
-        │  users    │         │  Topic   │
-        │  responses│         │  Skill   │
-        │  mastery  │         │ PREREQ   │
-        └─────┬─────┘         └────┬─────┘
-              │                    │
-              └──────────┬─────────┘
-                         ▼
-                ┌─────────────────┐
-                │  FastAPI        │ ← единый API
-                │  (backend/)     │
-                └────────┬────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        ▼                ▼                ▼
-┌───────────────┐ ┌──────────────┐ ┌─────────────┐
-│  PWA ученика  │ │  Дашборд     │ │  Платформа  │
-│  (в разраб.)  │ │  учителя     │ │  ПолиУм     │
-│               │ │  (Streamlit) │ │  (внешний)  │
-└───────────────┘ └──────────────┘ └─────────────┘
+┌─────────────────────────┐  ┌─────────────────────────┐
+│   🧠 HyperUm            │  │   Привет, Ваня!         │
+│                         │  │                         │
+│  Персональные задания — │  │  [средний] [освоено]    │
+│     каждому ученику     │  │   [подтянуть]           │
+│                         │  │                         │
+│  ┌─────────────────┐    │  │  Активные задания       │
+│  │ Опиши свой      │    │  │  ┌─────────────────┐    │
+│  │ уровень...      │    │  │  │ 🎯 Кодирование  │    │
+│  │                 │    │  │  │ 2 из 5          │    │
+│  └─────────────────┘    │  │  └─────────────────┘    │
+│                         │  │                         │
+│  ✨ Получить тест       │  │  Стоит подтянуть        │
+│                         │  │  Цикл for        0.42   │
+└─────────────────────────┘  └─────────────────────────┘
+   Лендинг с demo               Дашборд ученика
+
+┌─────────────────────────┐  ┌─────────────────────────┐
+│ 10А · 22 учеников       │  │ Твой граф знаний        │
+│                         │  │                         │
+│ ✨ Сгенерировать        │  │   ●───●───●───●          │
+│    персональные тесты   │  │   │   │   │   │          │
+│                         │  │   ●───●───●───●          │
+│ Код класса: A7K9P2      │  │   │   │   │   │          │
+│                         │  │   ●───●───●───●          │
+│ Ждут подтверждения (2)  │  │                         │
+│ Ученики (20)            │  │ 🟢 Освоено  🟡 В процессе│
+│ 🎯 Иванов · 2 теста     │  │ 🔴 Слабо    ⚪ Не изучено │
+└─────────────────────────┘  └─────────────────────────┘
+   Класс учителя                Граф знаний
 ```
-
-**Три уровня данных:**
-
-| Уровень | Что | Sharing |
-|---------|-----|---------|
-| Global | Таксономия (`skills`) | Общий для всех |
-| Shared | Задания, разметка, статистика | Общий, авторство сохраняется |
-| Isolated | PII, ответы, mastery | Только внутри tenant'а (RLS) |
-
-**Контексты применения:**
-- **Школьный** (апробация идёт) — учитель + класс.
-- **Платформенный** (в планах на февраль) — репетитор + ученики.
-
-Ядро системы **не зависит** от контекста.
 
 ---
 
@@ -83,433 +128,261 @@ HyperUm — интеллектуальный ассистент учителя. 
 
 | Слой | Технология |
 |------|-----------|
-| Backend | FastAPI + Python 3.11 |
-| БД (транзакции) | PostgreSQL 16 + SQLAlchemy 2 |
-| БД (граф) | Neo4j 5 |
-| Разметка заданий | GigaChat / DeepSeek API |
-| Аутентификация | JWT + bcrypt |
-| Дашборд учителя | Streamlit |
-| PWA ученика | React + Vite + TypeScript + Tailwind |
-| Граф в UI | Cytoscape.js |
-| Инфраструктура | Docker Compose |
+| **Backend** | FastAPI + Python 3.11 |
+| **БД (транзакции)** | PostgreSQL 16 + SQLAlchemy 2 + RLS |
+| **БД (граф)** | Neo4j 5 |
+| **LLM** | DeepSeek (`deepseek-chat`) |
+| **Аутентификация** | JWT (cookies + Bearer) + bcrypt |
+| **PWA (ученик + учитель)** | React 18 + Vite + TypeScript + Tailwind |
+| **State / Data** | Zustand + TanStack Query |
+| **Граф в UI** | Cytoscape.js + dagre |
+| **PWA-манифест** | vite-plugin-pwa + Workbox |
+| **Инфра** | Docker Compose + Nginx + Let's Encrypt |
+| **Деплой** | VPS, `hyperum.polyum.ru` |
 
 ---
 
-## Требования
+## Архитектура (краткая схема)
+
+```
+       ┌─────────────────────────────────────────────┐
+       │              КЛИЕНТЫ (PWA)                  │
+       │  Ученик  ·  Учитель  ·  Гость (лендинг)     │
+       └──────────────────┬──────────────────────────┘
+                          │ REST + JWT
+                          ▼
+       ┌─────────────────────────────────────────────┐
+       │           NGINX (hyperum.polyum.ru)         │
+       └──────────────────┬──────────────────────────┘
+                          ▼
+       ┌─────────────────────────────────────────────┐
+       │              BACKEND (FastAPI)              │
+       │  auth · tasks · mastery · graph · groups ·  │
+       │  assignments · responses · demo             │
+       └──┬───────────────────┬──────────────────────┘
+          │                   │
+          ▼                   ▼
+    ┌──────────┐       ┌──────────┐       ┌──────────┐
+    │PostgreSQL│       │  Neo4j   │       │ DeepSeek │
+    │          │       │          │       │          │
+    │ users    │       │ Module   │       │ разметка │
+    │ tasks    │       │ Topic    │       │ demo     │
+    │ responses│       │ Skill    │       │          │
+    │ mastery  │       │ PREREQ   │       │          │
+    │ assigns  │       │ Student  │       │          │
+    └──────────┘       └──────────┘       └──────────┘
+```
+
+**Полная архитектура** — в [`docs/architecture.md`](docs/architecture.md).
+
+---
+
+## Быстрый старт (dev)
+
+### Требования
 
 - Python 3.11+
-- Node.js 20+ (для PWA)
+- Node.js 20+
 - Docker Desktop
 - Git
 
----
-
-## Установка (один раз)
-
-### 1. Клонировать и активировать venv
+### Установка
 
 ```powershell
+# 1. Клонирование
+git clone <repo-url> hyperum
 cd hyperum
+
+# 2. venv
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
+# если политика запрещает:
+# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
-Если PowerShell ругается на политику:
+# 3. Зависимости
+pip install -r requirements-backend.txt
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
+# 4. .env
+Copy-Item .env.example .env
+# заполнить: HYPERUM_DB_URL, NEO4J_*, JWT_SECRET, DEEPSEEK_API_KEY
 
-### 2. Установить зависимости
-
-```powershell
-pip install -r requirements.txt
-```
-
-### 3. Настроить `.env`
-
-Скопируй `.env.example` → `.env` и заполни:
-
-```
-HYPERUM_DB_URL=postgresql://hyperum:hyperum_dev@localhost:5432/hyperum
-HYPERUM_NEO4J_URI=bolt://localhost:7687
-HYPERUM_NEO4J_USER=neo4j
-HYPERUM_NEO4J_PASSWORD=hyperum_dev
-HYPERUM_TENANT_DEFAULT=school_lyceum
-HYPERUM_JWT_SECRET=dev-secret-change-me-in-production
-GIGACHAT_AUTH_KEY=ваш_ключ
-DEEPSEEK_API_KEY=ваш_ключ
-```
-
-### 4. Поднять инфраструктуру
-
-```powershell
+# 5. Инфраструктура
 docker compose up -d
 docker compose ps
-```
 
-Оба контейнера — `running`: `hyperum_postgres`, `hyperum_neo4j`.
-
-### 5. Применить миграции
-
-```powershell
+# 6. Миграции
 .\scripts\migrate.ps1
-```
 
-### 6. Загрузить таксономию
+# 7. Таксономия
+python -m ml.load_taxonomy
+python -m ml.sync_skills_to_pg
 
-```powershell
-python -m ml.load_taxonomy        # → Neo4j
-python -m ml.sync_skills_to_pg    # → PostgreSQL
-```
-
-Проверка: ~140 навыков, 12 модулей.
-
-### 7. Загрузить задания и разметить
-
-```powershell
+# 8. Задания
 python -m scripts.seed_tasks
-python -m scripts.import_tasks tasks/batch2.csv
+
+# 9. Разметка через DeepSeek
+python -m ml.label_tasks_with_deepseek
+
+# 10. Учитель
+python -m scripts.set_password vee4@tpu.ru mypassword
 ```
 
-Разметка через DeepSeek — автоматически.
+### Ежедневный запуск
 
-### 8. Установить пароль учителю
-
+**Терминал 1 — Backend:**
 ```powershell
-python -m scripts.set_password vee4@tpu.ru mypassword123
-```
-
-Готово. Можно работать.
-
----
-
-## 🚀 Ежедневное использование
-
-Система состоит из **трёх компонентов**, запускаемых отдельно:
-
-### API (FastAPI)
-
-```powershell
+.\.venv\Scripts\Activate.ps1
 uvicorn backend.main:app --reload --port 8000
 ```
 
-- **Swagger UI:** http://localhost:8000/docs
-- **Health:** http://localhost:8000/health/db
-
-Подробнее — `backend/README.md`.
-
-### Дашборд учителя (Streamlit)
-
-```powershell
-streamlit run dashboard/app.py
-```
-
-- Откроется http://localhost:8501.
-- **6 экранов:** Обзор, Тепловая карта, Проблемные темы, Ученики, Задания, Создать тест.
-
-### PWA ученика
-
+**Терминал 2 — PWA:**
 ```powershell
 cd pwa
 npm run dev
 ```
 
-- Откроется http://localhost:5173.
-- В разработке (см. раздел «Roadmap»).
+**Терминал 3 — БД:**
+```powershell
+docker compose up -d
+```
+
+**Открыть:**
+
+- 🌐 PWA: http://localhost:5173
+- 📖 API Swagger: http://localhost:8000/docs
+- 🩺 Health: http://localhost:8000/health/db
+- 🕸 Neo4j Browser: http://localhost:7474
 
 ---
 
-## 📋 Полный рабочий цикл
+## Деплой
 
-### Сценарий A. Через Яндекс.Формы (работает сейчас)
+Прод — на VPS, домен **hyperum.polyum.ru**, HTTPS через Let's Encrypt,
+reverse proxy на Nginx, backend в Docker.
 
-**1. Создать тест в Яндекс.Формах**
+Полная инструкция — в [`docs/deployment.md`](docs/deployment.md).
 
-В заголовке каждого вопроса — код задания `[task_XXX]`:
+**Кратко:**
 
+```bash
+# На VPS
+cd /root/hyperum
+./scripts/deploy.sh
 ```
-[task_001] Сколько будет 1010₂ + 110₂?
-```
-
-Поля формы: **ФИО**, **Класс**.
-
-**2. Скачать CSV**
-
-Яндекс.Формы → **Ответы** → **Скачать CSV** → `data/check_YYYY-MM-DD.csv`.
-
-**3. Импортировать**
-
-```powershell
-python -m ingest.parse_yandex_csv data/check_2026-10-05.csv
-python -m ml.compute_mastery
-```
-
-**4. Посмотреть**
-
-```powershell
-streamlit run dashboard/app.py
-```
-
-### Сценарий B. Через API (генерация + отправка)
-
-**1. Залогинься как учитель**
-
-`POST /api/v1/auth/login` с email и паролем.
-
-**2. Сгенерируй тест**
-
-`POST /api/v1/assignments/generate`:
-
-```json
-{
-  "class_name": "10А",
-  "topic": "Кодирование",
-  "n_tasks": 3
-}
-```
-
-**3. Сохрани и отправь**
-
-- `POST /api/v1/assignments/save` — сохранить черновик.
-- `POST /api/v1/assignments/{id}/send` — отправить.
-
-**4. Ученик решает**
-
-- Логинится в PWA (в разработке).
-- `GET /api/v1/assignments/my` — активные тесты.
-- `POST /api/v1/responses` — отправить ответ.
 
 ---
 
-## ➕ Добавление новых заданий
-
-### Через CSV (рекомендуется)
-
-Создай `tasks/my_batch.csv`:
-
-```csv
-code,text,answer,type
-task_012,"Сколько байт в 2 Кбайтах?","2048",text
-task_013,"Переведите 100 в двоичную.","1100100",text
-```
-
-Загрузи и разметь автоматически через GigaChat/DeepSeek:
-
-```powershell
-python -m scripts.import_tasks tasks/my_batch.csv
-```
-
-**Опции:**
-- `--import-only` — только загрузить, без разметки
-- `--relabel` — переразметить все задания заново
-
-### Разметка вручную
-
-Если точно знаешь навык — добавь колонки в CSV:
-
-```csv
-code,text,answer,type,skill_id,difficulty
-task_015,"Сколько 7+5 в двоичной?","1100",text,s_arith_in_base,0.45
-```
-
-LLM **не тронет** эти задания.
-
-### Переразметка через DeepSeek
-
-```powershell
-python -m ml.label_tasks_with_deepseek
-```
-
-### Нормализация сложностей
-
-После разметки — выровнять распределение:
-
-```powershell
-python -m ml.normalize_difficulty
-```
-
-(LLM склонны кластеризовать сложности в узком диапазоне. Этот скрипт переводит их в равномерную шкалу.)
-
----
-
-## 🎯 Генератор персональных тестов
-
-### Через дашборд
-
-Streamlit → **🎯 Создать тест**:
-
-1. Выбери класс, тему, число заданий.
-2. Нажми **✨ Сгенерировать**.
-3. Превью: список учеников, каждому — **свой** набор.
-4. **💾 Сохранить черновик** → запись в БД.
-
-### Как работает
-
-Три механизма персонализации:
-
-1. **IRT-модель scoring** — задание в зоне ближайшего развития (P ≈ 0.7).
-2. **Diversity** — задания распределяются по классу, не дублируются.
-3. **Prerequisite-проверка** — через Neo4j исключаются задания с проваленными предпосылками.
-
-**Пример результата** (класс 10А, тема «Кодирование», 5 заданий):
-
-```
-Архипова:  task_215, task_206, task_046, task_286, task_044
-Богословский: task_139, task_150, task_308, task_293, task_043
-Буркин:    task_084, task_121, task_302, task_336, task_044
-```
-
-У каждого — свой набор. У **слабых** (Гурина) — задачи 0.4–0.5, у **сильных** (Богословский) — 0.75–0.85.
-
----
-
-## 🔍 SQL-аналитика
-
-Все запросы в `sql/`. Запуск:
-
-```powershell
-.\scripts\run_sql.ps1 sql\01_class_overview.sql
-```
-
-Все сразу:
-
-```powershell
-.\scripts\run_all_sql.ps1
-```
-
-**Что есть:**
-- `01_class_overview` — KPI по классам
-- `02_problems_by_class` — проблемные темы
-- `03_weak_students` — отстающие
-- `04_pivot_by_class` — матрица класс × навык
-- `05_errors_by_class` — ошибки по навыкам
-- `06_student_detail` — детали по ученику
-- `07_skill_detail` — детали по навыку
-- `08_task_stats` — статистика по заданиям
-- `09_mastery_distribution` — распределение mastery
-- `10_student_weak_skills` — что завалил каждый
-
----
-
-## 🗂 Структура проекта
+## Структура проекта
 
 ```
 hyperum/
-├── backend/              # FastAPI
-│   ├── api/              # роутеры
+├── backend/              # FastAPI: роутеры, сервисы, модели
+│   ├── api/              # HTTP-роутеры
 │   ├── services/         # бизнес-логика
 │   ├── models/           # Pydantic-схемы
-│   ├── auth/             # JWT, bcrypt
-│   ├── db/               # подключения к БД
+│   ├── auth/             # JWT + bcrypt
+│   ├── db/               # PostgreSQL + Neo4j
 │   ├── main.py
-│   └── README.md         # ← документация API
+│   ├── config.py
+│   └── Dockerfile
 │
-├── dashboard/            # Streamlit
-│   ├── app.py            # главный файл
-│   ├── db.py             # запросы
-│   └── generator.py      # генератор тестов
-│
-├── pwa/                  # PWA ученика (в разработке)
+├── pwa/                  # React PWA (ученик + учитель)
 │   ├── src/
+│   │   ├── api/          # axios-клиент
+│   │   ├── pages/        # Landing, Login, Dashboard, ...
+│   │   ├── pages/teacher/
+│   │   ├── components/   # GraphView, Header, ...
+│   │   ├── stores/       # Zustand
+│   │   └── hooks/
 │   ├── public/
-│   └── package.json
+│   └── vite.config.ts
 │
-├── data/                 # CSV из Яндекс.Форм
-├── ingest/               # парсинг CSV
-│   ├── normalize.py
-│   └── parse_yandex_csv.py
-│
-├── migrations/           # SQL-миграции
-├── ml/                   # ML и загрузка данных
+├── ml/                   # ML-скрипты
 │   ├── load_taxonomy.py
 │   ├── sync_skills_to_pg.py
 │   ├── compute_mastery.py
 │   ├── label_tasks_with_deepseek.py
-│   ├── label_tasks_with_gigachat.py
 │   ├── normalize_difficulty.py
-│   └── sync_mastery_to_neo4j.py
+│   └── prompts/
 │
-├── scripts/              # утилиты
-│   ├── migrate.ps1/.sh
-│   ├── run_sql.ps1
-│   ├── run_all_sql.ps1
-│   ├── seed_tasks.py
-│   ├── import_tasks.py
-│   ├── set_password.py
-│   ├── create_student.py
-│   └── ...
+├── ingest/               # Парсинг CSV Яндекс.Форм
+│   ├── normalize.py      # answers_equal
+│   └── parse_yandex_csv.py
 │
-├── sql/                  # аналитические запросы
-├── tasks/                # CSV с заданиями
-│   └── _template.csv
+├── migrations/           # 18 SQL-миграций
+├── scripts/              # Утилиты (deploy, migrate, seed)
+├── sql/                  # Аналитические запросы
 ├── taxonomy/             # YAML с таксономией
-│   └── informatics_10_11.yaml
-├── tests/                # тесты
-├── docs/                 # документация
-│   ├── requirements.md
-│   └── architecture.md
-│
+├── tasks/                # CSV с заданиями
+├── dashboard/            # Streamlit (устарел, legacy)
+├── docs/                 # Документация
+├── tests/
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── requirements.txt
+├── requirements-backend.txt
 └── README.md
 ```
 
 ---
 
-## 🛠 Полезные команды
+## Документация
 
-### Docker
+Вся актуальная документация — в папке [`docs/`](docs/).
 
-```powershell
-docker compose up -d        # поднять
-docker compose down         # остановить
-docker compose down -v      # остановить + удалить данные
-docker compose ps           # статус
-docker compose logs -f      # логи
-```
+| Документ | О чём |
+|----------|-------|
+| [`glossary.md`](docs/glossary.md) | Словарь терминов проекта |
+| [`architecture.md`](docs/architecture.md) | Архитектура: компоненты, потоки данных |
+| [`data-model.md`](docs/data-model.md) | Схема PostgreSQL + Neo4j |
+| [`ml.md`](docs/ml.md) | Mastery, scoring, разметка, roadmap ML |
+| [`research.md`](docs/research.md) | **Научная рамка ВКР:** гипотезы H1–H5, метрики, план эксперимента |
+| [`requirements.md`](docs/requirements.md) | Требования и актуальные статусы |
+| [`api.md`](docs/api.md) | Обзор REST API |
+| [`user-flows.md`](docs/user-flows.md) | Сценарии по ролям |
+| [`deployment.md`](docs/deployment.md) | Развёртывание: dev + prod VPS |
+| [`decisions.md`](docs/decisions.md) | 16 ADR: почему так, а не иначе |
 
-### PostgreSQL
-
-```powershell
-# Зайти в psql
-docker exec -it hyperum_postgres psql -U hyperum -d hyperum
-
-# Быстрый запрос
-docker exec -it hyperum_postgres psql -U hyperum -d hyperum -c "SELECT COUNT(*) FROM users;"
-
-# Дамп
-docker exec hyperum_postgres pg_dump -U hyperum hyperum > backup.sql
-```
-
-### Neo4j
-
-Браузер: http://localhost:7474 · `neo4j` / `hyperum_dev`
-
-```cypher
-// Весь граф
-MATCH (n) RETURN n LIMIT 100
-
-// Иерархия
-MATCH (m:Module)-[:CONTAINS]->(t:Topic)-[:CONTAINS]->(s:Skill)
-RETURN m.name, t.name, s.name
-
-// Mastery ученика
-MATCH (st:Student)-[m:MASTERY]->(s:Skill)
-RETURN st.id, s.name, m.value
-LIMIT 20
-```
-
-### Тесты
-
-```powershell
-python -m tests.test_normalize
-```
+**Backend API:** [`backend/README.md`](backend/README.md) + `/docs` (Swagger).
 
 ---
 
-## 🎓 Правила разработки
+## Статус и roadmap
+
+### Текущее состояние (октябрь 2026)
+
+- ✅ Пилот в лицее при ТПУ идёт (3 класса, 67 учеников)
+- ✅ PWA ученика и учителя в проде
+- ✅ Demo-режим на лендинге
+- ✅ Multi-skill разметка через DeepSeek
+- ✅ Генерация персональных тестов
+- ✅ Граф знаний (ученик + класс)
+- ✅ Регистрация по инвайт-коду
+
+### До финала MVP (≈1 рабочий день)
+
+| # | Что | Оценка |
+|---|-----|--------|
+| F45 | Дашборд ученика: прогресс + «Следующий шаг» + streak | 3–4 ч |
+| F46 | `GET /mastery/me/summary` | 1 ч |
+| F47 | `GET /recommendations/next` | 1–2 ч |
+| F58–F60 | Плюрализация, «0/1» → «Сдался», дубликат | 45 мин |
+| **F56** | **Бэкапы БД** ⚠️ критично | 1 ч |
+
+### Roadmap ML (см. `docs/research.md`)
+
+| Период | Что | Гипотеза |
+|--------|-----|----------|
+| Декабрь 2026 | BKT | **H2:** BKT > эвристики |
+| Январь 2027 | Graph-BKT | **H3:** граф улучшает редкие навыки |
+| Февраль–март 2027 | A/B тест | **H4:** гиперперсонализация даёт прирост |
+| Апрель 2027 | Переносимость на ПолиУМ | **H5** |
+| Апрель 2027 | ВКР | — |
+| Май 2027 | Защита | — |
+
+---
+
+## Правила разработки
 
 ### Запуск Python-скриптов
 
@@ -529,7 +402,7 @@ from ingest.normalize import answers_equal
 correct = answers_equal(student_answer, expected_answer, task_type)
 ```
 
-Защищает от `21.0` vs `21`, `FF` vs `ff`, `" 21 "` vs `21` и т.д.
+Защищает от `21.0` vs `21`, `FF` vs `ff`, лишних пробелов.
 
 ### SQL с кириллицей
 
@@ -547,76 +420,32 @@ correct = answers_equal(student_answer, expected_answer, task_type)
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 | Проблема | Решение |
 |----------|---------|
 | `ModuleNotFoundError: backend` | Запускай из корня: `uvicorn backend.main:app` |
 | `ModuleNotFoundError: X` | Активируй venv: `.\.venv\Scripts\Activate.ps1` |
-| `Cannot connect to Neo4j` | Подожди 30 сек, проверь `docker compose ps` |
+| `Cannot connect to Neo4j` | Подожди 30 сек, `docker compose ps` |
 | `psql: database "hyperum" does not exist` | `docker compose down -v && docker compose up -d` |
-| `permission denied for table responses` | RLS: нужен `SET app.current_tenant` |
-| Кириллица в psql — квадратики | Используй `run_sql.ps1` или дашборд |
-| Дашборд пустой | Проверь `docker compose ps` |
-| `Import matplotlib failed` | `pip install matplotlib` |
-| `bcrypt version` warning | Игнорируй — passlib удалён, используется чистый bcrypt |
+| `permission denied for table responses` | RLS: нужен `tenant_session()` |
+| Кириллица в psql — квадратики | Используй `run_sql.ps1` |
 | `401 Unauthorized` в API | `POST /auth/login` сначала |
-
----
-
-## 📝 Ключевые файлы для понимания
-
-| Файл | Что внутри |
-|------|-----------|
-| `docs/requirements.md` | Что система должна делать (со статусами) |
-| `docs/architecture.md` | Как она устроена |
-| `backend/README.md` | Документация API |
-| `taxonomy/informatics_10_11.yaml` | Источник истины по навыкам |
-| `dashboard/generator.py` | Ядро гиперперсонализации |
-| `ingest/normalize.py` | Логика сравнения ответов |
-| `backend/services/responses_service.py` | Мгновенная проверка + обновление mastery |
-
----
-
-## 📌 Итог одной командой
-
-### Полный цикл для новой проверочной
-
-```powershell
-# 1. Поднять инфраструктуру
-docker compose up -d
-
-# 2. Импорт ответов из CSV
-python -m ingest.parse_yandex_csv data/check_2026-10-05.csv
-python -m ml.compute_mastery
-
-# 3. Дашборд учителя
-streamlit run dashboard/app.py
-
-# 4. (опционально) API для PWA / интеграций
-uvicorn backend.main:app --reload --port 8000
-```
-
----
-
-## Roadmap
-
-| Период | Что | Статус |
-|--------|-----|--------|
-| Сентябрь 2026 | Ядро + дашборд + пилот + генератор | ✅ |
-| Октябрь 2026 | FastAPI + расширение банка + PWA (старт) | 🟡 |
-| Ноябрь 2026 | PWA (завершение) + деплой на VPS | 🔴 |
-| Декабрь 2026 | ML-модуль (BKT, рекомендации) | 🔴 |
-| Январь 2027 | Интеграция с ПолиУмом | 🔴 |
-| Февраль–Март 2027 | Апробация на платформе | 🔴 |
-| Апрель 2027 | ВКР | 🔴 |
-| Май 2027 | Защита | 🔴 |
+| 502 Bad Gateway на VPS | `docker compose logs backend` |
 
 ---
 
 ## Контакты
 
-**Автор:** Епифанов Вячеслав Евгеньевич
-**Научный руководитель:** Кривошеев Николай Анатольевич
-**Организация:** Томский политехнический университет, 2026
-**Апробация:** Лицей при ТПУ (3 класса, 67 учеников)
+**Автор:** Епифанов Вячеслав Евгеньевич  
+**Научный руководитель:** Кривошеев Николай Анатольевич  
+**Организация:** Томский политехнический университет, 2026  
+**Апробация:** Лицей при ТПУ · 3 класса · 67 учеников  
+**Прод:** https://hyperum.polyum.ru
+
+---
+
+## Лицензия
+
+Учебный проект. Используется в ВКР. Все права на таксономию,
+задания и данные пилота — у автора и Лицея при ТПУ.

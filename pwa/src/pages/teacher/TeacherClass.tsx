@@ -321,6 +321,22 @@ export default function TeacherClass() {
 
 // ─── Компонент строки ученика с меню ─────────────────
 
+function pluralDays(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'день'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня'
+  return 'дней'
+}
+
+function pluralTests(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'тест'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'теста'
+  return 'тестов'
+}
+
 function StudentRowWithMenu({
   student,
   menuOpen,
@@ -348,15 +364,28 @@ function StudentRowWithMenu({
 
   if (hasActive) {
     icon = '🎯'
-    mainText = `${student.active_assignments} ${student.active_assignments === 1 ? 'тест' : 'тестов'} не завершено`
-    if (isSilent) {
-      subText = `⏰ ${student.days_since_activity} дней не заходил`
-    }
+    mainText = `${student.active_assignments} ${pluralTests(student.active_assignments)} не завершено`
+    if (isSilent && student.days_since_activity !== null) {
+  subText = `⏰ ${student.days_since_activity} ${pluralDays(student.days_since_activity)} не заходил`
+}
   } else if (hasCompleted) {
+  const [correct, total] = (student.last_completed_score || '0/0').split('/').map(Number)
+  const successRate = total > 0 ? correct / total : 0
+
+  if (successRate === 0) {
+    icon = '⚠️'
+    mainText = 'Последний тест провален'
+    subText = `Результат: ${student.last_completed_score}`
+  } else if (successRate < 0.5) {
+    icon = '✅'
+    mainText = 'Есть пройденные тесты'
+    subText = `Последний: ${student.last_completed_score}`
+  } else {
     icon = '✅'
     mainText = 'Все тесты пройдены'
     subText = `Последний: ${student.last_completed_score}`
   }
+}
 
   return (
     <div className="relative rounded-2xl">
