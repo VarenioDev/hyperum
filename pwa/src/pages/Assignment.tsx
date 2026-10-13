@@ -7,6 +7,7 @@ import {
 } from '../api/assignments'
 import { submitResponse, type ResponseResult } from '../api/responses'
 import { getErrorMessage } from '../api/client'
+import LatexText from '../components/LatexText'
 
 type TaskState = {
   answer: string
@@ -258,11 +259,12 @@ export default function Assignment() {
               Задание {currentIndex + 1} из {tasks.length} · {currentTask.code}
             </p>
 
-            {/* Текст задания */}
+                        {/* Текст задания */}
             <div className="glass-strong rounded-3xl p-6 mb-4">
-              <p className="text-base text-slate-800 whitespace-pre-wrap leading-relaxed">
-                {currentTask.text}
-              </p>
+              <LatexText
+                text={currentTask.text}
+                className="text-base text-slate-800"
+              />
             </div>
 
             {/* Поле ответа / результат */}

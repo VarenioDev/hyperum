@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { submitResponse, type ResponseResult } from '../api/responses'
 import { getErrorMessage } from '../api/client'
 import type { NextTaskRecommendation } from '../api/recommendations'
+import LatexText from './LatexText'
 
 interface Props {
   recommendation: NextTaskRecommendation
@@ -100,9 +101,10 @@ export default function NextStepCard({ recommendation }: Props) {
               </button>
             </div>
 
-            <p className="text-base text-slate-800 leading-relaxed whitespace-pre-wrap">
-              {recommendation.task.text}
-            </p>
+                        <LatexText
+              text={recommendation.task.text}
+              className="text-base text-slate-800"
+            />
 
             {!result ? (
               <>

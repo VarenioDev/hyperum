@@ -266,3 +266,76 @@ body::before {
     animation: none;
   }
 }
+
+/* ─── LaTeX (KaTeX) ──────────────────────────────────────── */
+
+.latex-text .katex {
+  font-size: 1.05em;
+  color: inherit;
+}
+
+.latex-text .katex-display {
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+
+/* Формулы в тёмных блоках не должны терять цвет */
+.latex-text .katex,
+.latex-text .katex * {
+  color: inherit;
+}
+
+/* Ссылки в тексте задания */
+.latex-text a {
+  color: theme('colors.brand.600');
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Инлайн-код (если вдруг попадётся) */
+.latex-text code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25em;
+  font-size: 0.92em;
+}
+
+/* Блоки кода */
+.latex-text pre {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.75em 1em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.latex-text pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Таблицы — уже в компоненте, но добавим базовое */
+.latex-text table {
+  word-break: normal;
+}
+
+/* Списки */
+.latex-text ul,
+.latex-text ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.latex-text ul {
+  list-style: disc;
+}
+
+.latex-text ol {
+  list-style: decimal;
+}
+
+.latex-text li {
+  margin: 0.2em 0;
+}

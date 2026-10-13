@@ -11,6 +11,7 @@ import { getErrorMessage } from '../api/client'
 import GraphView from '../components/GraphView'
 import SkillCard from '../components/SkillCard'
 import type { GraphNode, StudentGraph } from '../api/graph'
+import LatexText from '../components/LatexText'
 
 interface DemoSession {
   session_id: string
@@ -320,10 +321,11 @@ export default function DemoTest() {
               Задание {currentIndex + 1} из {session.tasks.length}
             </p>
 
-            <div className="glass-strong rounded-3xl p-6 mb-4">
-              <p className="text-base text-slate-800 whitespace-pre-wrap leading-relaxed">
-                {currentTask.text}
-              </p>
+                        <div className="glass-strong rounded-3xl p-6 mb-4">
+              <LatexText
+                text={currentTask.text}
+                className="text-base text-slate-800"
+              />
             </div>
 
             {!currentState?.submitted ? (
