@@ -72,11 +72,14 @@ def get_current_user(
     """
     Загрузить профиль текущего пользователя из БД.
     Автоматически устанавливает RLS-контекст по tenant_id из токена.
+
+    F74: если статус пользователя изменился на pending/blocked
+    после выдачи токена — доступ отзывается.
     """
     with tenant_session(token.tenant_id) as session:
         row = session.execute(
             text("""
-                SELECT id, tenant_id, role, full_name, email, created_at
+                SELECT id, tenant_id, role, full_name, email, created_at, status
                 FROM users
                 WHERE id = :uid
             """),
@@ -87,6 +90,15 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Пользователь не найден",
+        )
+
+    # ─── F74: проверка статуса ─────────────────────────
+    user_status = row[6]
+    if user_status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к системе заблокирован. "
+                   "Обратитесь к администратору.",
         )
 
     return UserResponse(

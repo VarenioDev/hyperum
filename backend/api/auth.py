@@ -73,7 +73,7 @@ async def login(payload: LoginRequest, response: Response):
     with get_session() as session:
         row = session.execute(
             text("""
-                SELECT id, tenant_id, role, password_hash
+                SELECT id, tenant_id, role, password_hash, status
                 FROM users
                 WHERE email = :email
                 LIMIT 1
@@ -88,12 +88,33 @@ async def login(payload: LoginRequest, response: Response):
             detail="Неверный email или пароль",
         )
 
-    user_id, tenant_id, role, password_hash = row
+    user_id, tenant_id, role, password_hash, user_status = row
 
     if not verify_password(payload.password, password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
+        )
+
+    # ─── F74: проверка статуса ─────────────────────────
+    if user_status == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Заявка ещё не подтверждена учителем. "
+                   "Попросите учителя подтвердить её.",
+        )
+
+    if user_status == "blocked":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к системе заблокирован.",
+        )
+
+    if user_status != "active":
+        # На всякий случай: неизвестный статус тоже не пускаем
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ запрещён.",
         )
 
     access = create_access_token(user_id, tenant_id, role)
