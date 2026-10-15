@@ -55,6 +55,10 @@ export interface GeneratedTask {
   code: string
   text: string
   skill_id: string | null
+  answer: string | null
+  type: string | null
+  options: Record<string, unknown> | null
+  primary_skill_name: string | null
   difficulty: number | null
   mastery: number | null
   score: number | null
@@ -71,6 +75,7 @@ export interface GeneratedTest {
   class_name: string
   topic: string
   n_tasks: number
+  personalize: boolean
   students: GeneratedStudentTest[]
   usage_stats: Record<string, number> | null
 }
@@ -79,6 +84,8 @@ export interface GenerateRequest {
   group_id: string
   topic: string
   n_tasks: number
+  student_ids?: string[]
+  personalize?: boolean
 }
 
 export interface SaveRequest {
@@ -86,6 +93,26 @@ export interface SaveRequest {
   group_id: string
   topic: string
   students: GeneratedStudentTest[]
+  personalize?: boolean
+}
+
+export interface RegenerateTaskRequest {
+  group_id: string
+  topic: string
+  student_ids: string[]
+  personalize: boolean
+  task_id: string
+  exclude_task_ids: string[]
+}
+
+export interface RegeneratedTask {
+  task: GeneratedTask
+  match: 'same_skill' | 'neighboring_skill'
+}
+
+export async function regenerateTask(payload: RegenerateTaskRequest): Promise<RegeneratedTask> {
+  const { data } = await api.post<RegeneratedTask>('/assignments/regenerate-task', payload)
+  return data
 }
 
 export async function getTopics(): Promise<string[]> {

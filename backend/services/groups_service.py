@@ -96,14 +96,16 @@ def get_group_detail(
 
     students = session.execute(text("""
         WITH base AS (
-            SELECT u.id, u.full_name, u.email, m.status, m.joined_at,
+            SELECT u.id, u.full_name, u.email,
+                   CASE WHEN u.status = 'blocked' THEN 'blocked' ELSE m.status END AS status,
+                   m.joined_at,
                    ROUND(AVG(sm.mastery)::numeric, 2) AS avg_mastery
             FROM memberships m
             JOIN users u ON u.id = m.user_id
             LEFT JOIN student_mastery sm ON sm.student_id = u.id
             WHERE m.group_id = :gid AND m.role = 'student'
               AND m.status != 'rejected'
-            GROUP BY u.id, u.full_name, u.email, m.status, m.joined_at
+            GROUP BY u.id, u.full_name, u.email, u.status, m.status, m.joined_at
         )
         SELECT
             b.id, b.full_name, b.email, b.status, b.joined_at, b.avg_mastery,

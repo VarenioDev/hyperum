@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getMyResponses, type MyResponse } from '../api/responses'
 import Header from '../components/Header'
+import LatexText from '../components/LatexText'
 
 export default function History() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -94,9 +95,10 @@ function ResponseCard({
               {r.assignment_title}
             </p>
           )}
-          <p className="text-sm text-slate-700 font-medium line-clamp-2">
-            {r.task_text || r.code || 'Задание'}
-          </p>
+          <LatexText
+            text={r.task_text || r.code || 'Задание'}
+            className="text-sm text-slate-700 font-medium line-clamp-2"
+          />
 
           <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
             <span>{date}</span>
@@ -116,6 +118,7 @@ function ResponseCard({
 
       {expanded && (
         <div className="mt-3 pt-3 border-t border-slate-200 space-y-2 text-sm">
+          {r.task_text && <LatexText text={r.task_text} />}
           <div>
             <span className="text-slate-500 text-xs">Ваш ответ:</span>{' '}
             <strong className={r.skipped ? 'text-slate-500' : ''}>

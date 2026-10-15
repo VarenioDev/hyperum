@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:generation": "node scripts/test-generation-draft.mjs && node scripts/test-generation-render.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

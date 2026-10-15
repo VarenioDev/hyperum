@@ -10,12 +10,18 @@ from backend.models.assignments import (
     GenerateRequest, GeneratedTest, GeneratedStudentTest, GeneratedTask,
     SaveAssignmentRequest, AssignmentListItem, MyAssignmentBrief,
     SendResponse, AssignmentTaskForStudent,
+    RegenerateTaskRequest, RegeneratedTask,
 )
 from backend.models.users import UserResponse
 from backend.services import assignments_service as svc
+from backend.services import assignment_generation as generation
 
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
+
+
+def generated_task(task: dict) -> GeneratedTask:
+    return GeneratedTask(**{**task, "skill_id": task.get("primary_skill") or task.get("skill_id")})
 
 
 # ─── Генерация (учитель) ─────────────────────────────────────
@@ -25,31 +31,21 @@ async def generate_test(
     payload: GenerateRequest,
     user: UserResponse = Depends(require_teacher),
 ):
-    with tenant_session(user.tenant_id) as session:
-        result = svc.generate_for_group(
-            session,
-            group_id=str(payload.group_id),
-            topic=payload.topic,
-            n_tasks=payload.n_tasks,
-        )
-
-    if "error" in result:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["error"],
-        )
+    try:
+        with tenant_session(user.tenant_id) as session:
+            result = svc.generate_for_group(
+                session, group_id=str(payload.group_id), topic=payload.topic,
+                n_tasks=payload.n_tasks, teacher_id=str(user.id),
+                student_ids=[str(s) for s in payload.student_ids] if payload.student_ids is not None else None,
+                personalize=payload.personalize,
+            )
+    except generation.GenerationError as exc:
+        raise HTTPException(exc.status_code, detail=str(exc)) from exc
 
     # Преобразуем в модели
     students = []
     for s in result["students"]:
-        tasks = [
-            GeneratedTask(
-                task_id=t["task_id"], code=t["code"], text=t["text"],
-                skill_id=t.get("skill_id"), difficulty=t.get("difficulty"),
-                mastery=t.get("mastery"), score=t.get("score"),
-            )
-            for t in s["tasks"]
-        ]
+        tasks = [generated_task(t) for t in s["tasks"]]
         students.append(GeneratedStudentTest(
             student_id=s["student_id"],
             full_name=s["full_name"],
@@ -61,9 +57,28 @@ async def generate_test(
         class_name=result["class_name"],
         topic=result["topic"],
         n_tasks=result["n_tasks"],
+        personalize=result["personalize"],
         students=students,
         usage_stats=result.get("usage_stats"),
     )
+
+
+@router.post("/regenerate-task", response_model=RegeneratedTask)
+async def regenerate_task(
+    payload: RegenerateTaskRequest,
+    user: UserResponse = Depends(require_teacher),
+):
+    try:
+        with tenant_session(user.tenant_id) as session:
+            result = generation.regenerate_task(
+                session, group_id=str(payload.group_id), teacher_id=str(user.id),
+                topic=payload.topic, student_ids=[str(s) for s in payload.student_ids],
+                personalize=payload.personalize, task_id=str(payload.task_id),
+                exclude_task_ids=[str(t) for t in payload.exclude_task_ids],
+            )
+    except generation.GenerationError as exc:
+        raise HTTPException(exc.status_code, detail=str(exc)) from exc
+    return RegeneratedTask(task=generated_task(result["task"]), match=result["match"])
 
 
 @router.post("/save", response_model=dict)
@@ -74,6 +89,7 @@ async def save_generated(
     generated = {
         "class_name": "",  # больше не используется для поиска
         "topic": payload.topic,
+        "personalize": payload.personalize,
         "n_tasks": max(len(s.tasks) for s in payload.students),
         "students": [
             {
@@ -103,9 +119,9 @@ async def save_generated(
                 title=payload.title,
                 group_id=str(payload.group_id),
             )
-        except ValueError as e:
+        except generation.GenerationError as e:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=e.status_code,
                 detail=str(e),
             )
 
@@ -121,9 +137,10 @@ async def send_assignment(
     Отправить черновик ученикам.
     """
     with tenant_session(user.tenant_id) as session:
-        result = svc.send_assignment(
-            session, str(assignment_id), str(user.id)
-        )
+        try:
+            result = svc.send_assignment(session, str(assignment_id), str(user.id))
+        except generation.GenerationError as exc:
+            raise HTTPException(exc.status_code, detail=str(exc)) from exc
 
     if "error" in result:
         code = result["error"]

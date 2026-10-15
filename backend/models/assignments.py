@@ -3,6 +3,7 @@
 """
 from datetime import datetime
 from uuid import UUID
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -11,7 +12,11 @@ class GeneratedTask(BaseModel):
     task_id: UUID
     code: str
     text: str
+    answer: str | None = None
+    type: str | None = None
+    options: dict | None = None
     skill_id: str | None = None
+    primary_skill_name: str | None = None
     difficulty: float | None = None
     mastery: float | None = None
     score: float | None = None
@@ -29,6 +34,22 @@ class GenerateRequest(BaseModel):
     group_id: UUID = Field(..., description="ID класса (UUID)")
     topic: str = Field(..., description="Тема (например, «Кодирование»)")
     n_tasks: int = Field(5, ge=1, le=20, description="Число заданий на ученика")
+    student_ids: list[UUID] | None = Field(None, min_length=1, max_length=500)
+    personalize: bool = True
+
+
+class RegenerateTaskRequest(BaseModel):
+    group_id: UUID
+    topic: str = Field(..., min_length=1)
+    student_ids: list[UUID] = Field(..., min_length=1, max_length=500)
+    personalize: bool = True
+    task_id: UUID
+    exclude_task_ids: list[UUID] = Field(default_factory=list, max_length=2000)
+
+
+class RegeneratedTask(BaseModel):
+    task: GeneratedTask
+    match: Literal['same_skill', 'neighboring_skill']
 
 
 class GeneratedTest(BaseModel):
@@ -36,6 +57,7 @@ class GeneratedTest(BaseModel):
     class_name: str
     topic: str
     n_tasks: int
+    personalize: bool = True
     students: list[GeneratedStudentTest]
     usage_stats: dict | None = None
 
@@ -87,7 +109,8 @@ class SaveAssignmentRequest(BaseModel):
     title: str = Field(..., min_length=2)
     group_id: UUID
     topic: str
-    students: list[GeneratedStudentTest]
+    students: list[GeneratedStudentTest] = Field(..., min_length=1, max_length=500)
+    personalize: bool = True
 
 class AssignmentListItem(BaseModel):
     """Краткая карточка назначения для списка учителя."""

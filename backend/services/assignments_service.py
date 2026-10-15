@@ -30,7 +30,7 @@ def get_group_students(session: Session, group_id: str) -> list[dict]:
         SELECT DISTINCT u.id, u.full_name
         FROM users u
         JOIN memberships m ON m.user_id = u.id AND m.role = 'student'
-        WHERE m.group_id = :gid AND m.status = 'active'
+        WHERE m.group_id = :gid AND m.status = 'active' AND u.status = 'active'
         ORDER BY u.full_name
     """), {"gid": group_id}).fetchall()
     return [{"id": str(r[0]), "full_name": r[1]} for r in rows]
@@ -53,10 +53,11 @@ def get_topic_skills(session: Session, topic: str) -> list[str]:
 
 
 def get_candidate_tasks(
-    session: Session, skill_ids: list[str], model: str = "deepseek"
+    session: Session, skill_ids: list[str], model: str = "deepseek",
+    author_id: str | None = None,
 ) -> list[dict]:
     """
-    Задания, связанные с любым из указанных навыков.
+    Задания с основным навыком из выбранной темы, доступные пользователю.
     Одно задание — одна строка (даже если связано с несколькими навыками).
     """
     if not skill_ids:
@@ -67,26 +68,35 @@ def get_candidate_tasks(
             t.id AS task_id,
             t.code,
             t.text,
-            MAX(CASE WHEN tl.is_primary THEN tl.skill_id END) AS primary_skill,
+            t.answer, t.type, t.options,
+            primary_label.skill_id AS primary_skill,
+            sk.name AS primary_skill_name,
             array_agg(DISTINCT tl.skill_id) AS all_skills,
             AVG(tl.difficulty) AS difficulty
         FROM tasks t
+        JOIN task_labels primary_label ON primary_label.task_id = t.id
+          AND primary_label.model = :model AND primary_label.is_primary
+        JOIN skills sk ON sk.id = primary_label.skill_id
         JOIN task_labels tl ON tl.task_id = t.id
-        WHERE tl.skill_id = ANY(:sids)
+        WHERE primary_label.skill_id = ANY(:sids)
           AND tl.model = :model
-        GROUP BY t.id, t.code, t.text
-        HAVING MAX(CASE WHEN tl.is_primary THEN tl.skill_id END) IS NOT NULL
+          AND (t.visibility = 'shared'
+            OR (t.visibility = 'tenant' AND t.author_tenant = current_setting('app.current_tenant', true))
+            OR (t.visibility = 'private' AND t.author_id = CAST(:author_id AS uuid)))
+        GROUP BY t.id, primary_label.skill_id, sk.name
         ORDER BY t.code
-    """), {"sids": skill_ids, "model": model}).fetchall()
+    """), {"sids": skill_ids, "model": model, "author_id": author_id}).fetchall()
 
     return [
         {
             "task_id": str(r[0]),
             "code": r[1],
             "text": r[2],
-            "primary_skill": r[3],
-            "all_skills": list(r[4]) if r[4] else [],
-            "difficulty": float(r[5]),
+            "answer": r[3], "type": r[4], "options": r[5],
+            "primary_skill": r[6], "skill_id": r[6],
+            "primary_skill_name": r[7],
+            "all_skills": list(r[8]) if r[8] else [],
+            "difficulty": float(r[9]) if r[9] is not None else 0.5,
         }
         for r in rows
     ]
@@ -235,79 +245,12 @@ def select_tasks_for_student(
 
 # ─── Генерация для класса ────────────────────────────────────
 
-def generate_for_group(
-    session: Session,
-    group_id: str,
-    topic: str,
-    n_tasks: int,
-    model: str = "deepseek",
-) -> dict[str, Any]:
-    # Получаем информацию о группе
-    group_row = session.execute(text("""
-        SELECT name FROM groups WHERE id = :gid
-    """), {"gid": group_id}).fetchone()
-    if not group_row:
-        return {"error": "Класс не найден"}
-    class_name = group_row[0]
+def generate_for_group(session, group_id, topic, n_tasks, model="deepseek", *,
+                       teacher_id, student_ids=None, personalize=True):
+    from backend.services.assignment_generation import generate_for_group as generate
+    return generate(session, group_id, topic, n_tasks, model, teacher_id=teacher_id,
+                    student_ids=student_ids, personalize=personalize)
 
-    students = get_group_students(session, group_id)
-    if not students:
-        return {"error": f"В классе {class_name} нет активных учеников"}
-
-    skill_ids = get_topic_skills(session, topic)
-    if not skill_ids:
-        return {"error": f"По теме «{topic}» нет навыков"}
-
-    candidates = get_candidate_tasks(session, skill_ids, model=model)
-    if not candidates:
-        return {"error": f"По теме «{topic}» нет размеченных заданий"}
-
-    usage_counter: dict[str, int] = {}
-    students_result = []
-
-    shuffled = list(students)
-    random.shuffle(shuffled)
-
-    for student in shuffled:
-        mastery = get_student_mastery(session, student["id"])
-        blocked = get_weak_prerequisites(student["id"], skill_ids)
-
-# Убираем задания, у которых primary-навык заблокирован
-        filtered = [c for c in candidates if c["primary_skill"] not in blocked] \
-            if blocked else candidates
-        if not filtered:
-            filtered = candidates
-
-        tasks = select_tasks_for_student(
-            mastery, filtered, n=n_tasks, usage_counter=usage_counter
-        )
-
-        for t in tasks:
-            usage_counter[t["task_id"]] = usage_counter.get(t["task_id"], 0) + 1
-
-        students_result.append({
-            "student_id": student["id"],
-            "full_name": student["full_name"],
-            "tasks": tasks,
-            "blocked_skills": list(blocked),
-        })
-
-    students_result.sort(key=lambda x: x["full_name"])
-
-    return {
-        "class_name": class_name,
-        "topic": topic,
-        "n_tasks": n_tasks,
-        "students": students_result,
-        "usage_stats": {
-            "total_tasks_used": sum(usage_counter.values()),
-            "unique_tasks_used": len(usage_counter),
-            "max_usage": max(usage_counter.values()) if usage_counter else 0,
-        },
-    }
-
-
-# ─── Сохранение ──────────────────────────────────────────────
 
 def save_assignment(
     session: Session,
@@ -316,12 +259,8 @@ def save_assignment(
     title: str,
     group_id: str,   # ← теперь обязательный параметр
 ) -> str:
-    # Проверяем, что группа существует
-    group_exists = session.execute(text("""
-        SELECT 1 FROM groups WHERE id = :gid
-    """), {"gid": group_id}).fetchone()
-    if not group_exists:
-        raise ValueError(f"Класс не найден")
+    from backend.services.assignment_generation import validate_saved_test
+    group = validate_saved_test(session, generated, group_id, created_by)
 
     assignment_id = str(uuid.uuid4())
 
@@ -332,7 +271,7 @@ def save_assignment(
         VALUES
             (:id, :t, :g, :cb, :topic, :title, :n, 'draft')
     """), {
-        "id": assignment_id, "t": "school_lyceum",
+        "id": assignment_id, "t": group[1],
         "g": group_id, "cb": created_by,
         "topic": generated["topic"], "title": title,
         "n": generated["n_tasks"],
@@ -486,7 +425,7 @@ def send_assignment(
     """
     # Проверяем, что это назначение учителя
     row = session.execute(text("""
-        SELECT created_by, status FROM assignments WHERE id = :aid
+        SELECT created_by, status, group_id FROM assignments WHERE id = :aid
     """), {"aid": assignment_id}).fetchone()
 
     if row is None:
@@ -495,6 +434,13 @@ def send_assignment(
         return {"error": "forbidden"}
     if row[1] != "draft":
         return {"error": f"already_{row[1]}"}
+
+    from backend.services.assignment_generation import get_owned_group, selected_students
+    get_owned_group(session, str(row[2]), teacher_id)
+    recipients = session.execute(text("""
+        SELECT student_id FROM assignment_students WHERE assignment_id = :aid
+    """), {"aid": assignment_id}).fetchall()
+    selected_students(session, str(row[2]), [str(r[0]) for r in recipients])
 
     session.execute(text("""
         UPDATE assignments

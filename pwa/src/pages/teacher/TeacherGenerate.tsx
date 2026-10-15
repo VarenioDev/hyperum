@@ -1,365 +1,221 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import {
-  getTopics,
-  generateTest,
-  saveGeneratedTest,
-  sendAssignment,
-  type GeneratedTest,
-} from '../../api/assignments'
+import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { generateTest, getTopics, regenerateTask, saveGeneratedTest, sendAssignment,
+  type GeneratedTest, type GeneratedStudentTest } from '../../api/assignments'
 import { getGroupDetail } from '../../api/groups'
 import { getErrorMessage } from '../../api/client'
 import Header from '../../components/Header'
+import StudentPicker from '../../components/teacher/StudentPicker'
+import GeneratedTaskCard from '../../components/teacher/GeneratedTaskCard'
+import { matchesConfiguration, replacePreviewTask } from './generationDraft'
 
 export default function TeacherGenerate() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  return id ? <Generator key={id} groupId={id} /> : <p>Класс не найден</p>
+}
 
-  const [topic, setTopic] = useState<string>('')
+function Generator({ groupId }: { groupId: string }) {
+  const navigate = useNavigate()
+  const [topic, setTopic] = useState('')
   const [nTasks, setNTasks] = useState<number | ''>(5)
-  const [title, setTitle] = useState<string>('')
+  const [personalize, setPersonalize] = useState(true)
+  const [selection, setSelection] = useState<string[] | null>(null)
+  const [title, setTitle] = useState('')
   const [generated, setGenerated] = useState<GeneratedTest | null>(null)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [error, setError] = useState('')
-  const [progress, setProgress] = useState(0)
+  const [rejected, setRejected] = useState<Record<string, string[]>>({})
+  const [notices, setNotices] = useState<Record<string, string>>({})
+  const [replaceErrors, setReplaceErrors] = useState<Record<string, string>>({})
 
-  const { data: group, isLoading: loadingGroup } = useQuery({
-    queryKey: ['group', id],
-    queryFn: () => getGroupDetail(id!),
-    enabled: !!id,
-  })
+  const groupQuery = useQuery({ queryKey: ['group', groupId], queryFn: () => getGroupDetail(groupId) })
+  const topicsQuery = useQuery({ queryKey: ['topics'], queryFn: getTopics })
+  const group = groupQuery.data
+  const eligible = (group?.students || []).filter(s => s.status === 'active')
+  const selectedIds = selection === null ? eligible.map(s => s.id) : selection.filter(id => eligible.some(s => s.id === id))
+  const preview = generated && matchesConfiguration(generated, topic, nTasks, personalize, selectedIds) ? generated : null
 
-  const { data: topics } = useQuery({
-    queryKey: ['topics'],
-    queryFn: getTopics,
-  })
+  function resetPreview() {
+    setGenerated(null)
+    setSavedId(null)
+    setError('')
+    setRejected({})
+    setNotices({})
+    setReplaceErrors({})
+  }
 
   const generateMutation = useMutation({
     mutationFn: generateTest,
-    onSuccess: (data) => {
+    onSuccess: data => {
       setGenerated(data)
       setError('')
-      if (!title) {
-        setTitle(`${data.topic} — ${data.class_name}`)
-      }
+      if (!title.trim()) setTitle(`${data.topic} — ${data.class_name}`)
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: err => setError(getErrorMessage(err)),
   })
-
   const saveMutation = useMutation({
     mutationFn: saveGeneratedTest,
-    onSuccess: (data) => {
-      setSavedId(data.assignment_id)
-      setError('')
-    },
-    onError: (err) => setError(getErrorMessage(err)),
+    onSuccess: data => { setSavedId(data.assignment_id); setError('') },
+    onError: err => setError(getErrorMessage(err)),
   })
-
   const sendMutation = useMutation({
     mutationFn: sendAssignment,
-    onSuccess: () => {
-      navigate(`/teacher/class/${id}`)
+    onSuccess: () => navigate(`/teacher/class/${groupId}`),
+    onError: err => setError(getErrorMessage(err)),
+  })
+  const replaceMutation = useMutation({
+    mutationFn: async ({ student, index }: { student: GeneratedStudentTest; index: number }) => {
+      if (!preview || savedId) throw new Error('Сначала сгенерируй тест')
+      const bucket = preview.personalize ? student.student_id : 'common'
+      const result = await regenerateTask({
+        group_id: groupId, topic: preview.topic, personalize: preview.personalize,
+        student_ids: preview.personalize ? [student.student_id] : preview.students.map(s => s.student_id),
+        task_id: student.tasks[index].task_id,
+        exclude_task_ids: [...new Set([...student.tasks.map(t => t.task_id), ...(rejected[bucket] || [])])],
+      })
+      return { result, bucket, previousId: student.tasks[index].task_id }
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onMutate: ({ student, index }) => {
+      const key = `${student.student_id}:${index}`
+      setReplaceErrors(previous => ({ ...previous, [key]: '' }))
+      setNotices(previous => ({ ...previous, [key]: '' }))
+    },
+    onSuccess: ({ result, bucket, previousId }, { student, index }) => {
+      setGenerated(previous => previous ? replacePreviewTask(previous, student.student_id, index, previousId, result.task) : previous)
+      setRejected(previous => ({ ...previous, [bucket]: [...new Set([...(previous[bucket] || []), previousId])] }))
+      setNotices(previous => ({ ...previous, [`${student.student_id}:${index}`]: result.match === 'neighboring_skill'
+        ? 'Подобрали задание из соседнего навыка этой темы' : 'Подобрали другое задание на тот же навык' }))
+    },
+    onError: (err, { student, index }) => setReplaceErrors(previous => ({ ...previous, [`${student.student_id}:${index}`]: getErrorMessage(err) })),
   })
+  const busy = generateMutation.isPending || saveMutation.isPending || sendMutation.isPending || replaceMutation.isPending
+  const locked = busy || Boolean(savedId)
+  const validCount = typeof nTasks === 'number' && Number.isInteger(nTasks) && nTasks >= 1 && nTasks <= 20
 
-  // ─── Управление прогрессом генерации ──────────────────
-  useEffect(() => {
-    if (generateMutation.isPending) {
-      setProgress(5)
-      const interval = setInterval(() => {
-        setProgress((p) => {
-          if (p >= 90) return p
-          return p + Math.max(1, (90 - p) * 0.15)
-        })
-      }, 250)
-      return () => clearInterval(interval)
-    } else if (progress > 0) {
-      setProgress(100)
-      const t = setTimeout(() => setProgress(0), 600)
-      return () => clearTimeout(t)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generateMutation.isPending])
-
-  const handleGenerate = () => {
-  setError('')
-  if (!group) return
-  if (!topic) {
-    setError('Выбери тему')
-    return
-  }
-  generateMutation.mutate({
-      group_id: id!,
-      topic,
-      n_tasks: typeof nTasks === 'number' ? nTasks : 5,
-    })
-}
-
-  const handleSave = () => {
-  if (!generated) return
-  saveMutation.mutate({
-    title: title || `${generated.topic} — ${generated.class_name}`,
-    group_id: id!,           // ← было class_name
-    topic: generated.topic,
-    students: generated.students,
-  })
-}
-
-  const handleSend = () => {
-    if (!savedId) return
-    sendMutation.mutate(savedId)
+  function handleGenerate() {
+    if (busy || savedId || !group || !topic || !validCount || !selectedIds.length) return
+    const ids = [...selectedIds]
+    resetPreview()
+    setSelection(ids)
+    generateMutation.mutate({ group_id: groupId, topic, n_tasks: nTasks as number, student_ids: ids, personalize })
   }
 
-  const isBusy =
-    generateMutation.isPending ||
-    saveMutation.isPending ||
-    sendMutation.isPending
-
-  if (loadingGroup) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-slate-500">Загрузка...</div>
-      </div>
-    )
+  function handleSave() {
+    if (!preview || busy || savedId || title.trim().length < 2) return
+    setError('')
+    saveMutation.mutate({ title: title.trim(), group_id: groupId, topic: preview.topic,
+      students: preview.students, personalize: preview.personalize })
   }
+
+  const renderTasks = (student: GeneratedStudentTest) => (
+    <div className="space-y-3">
+      {student.tasks.map((task, index) => {
+        const key = `${student.student_id}:${index}`
+        return <GeneratedTaskCard key={`${index}:${task.task_id}`} task={task} position={index + 1}
+          onReplace={() => replaceMutation.mutate({ student, index })} disabled={busy}
+          replacing={replaceMutation.isPending && replaceMutation.variables?.student.student_id === student.student_id && replaceMutation.variables.index === index}
+          saved={Boolean(savedId)} common={!personalize} message={notices[key]} error={replaceErrors[key]} />
+      })}
+    </div>
+  )
 
   return (
-    <div className="min-h-screen pb-32 relative">
-      <div className="fixed top-0 -left-32 w-80 h-80 rounded-full
-                      bg-brand-300/30 blur-3xl pointer-events-none" />
-      <div className="fixed bottom-0 -right-32 w-80 h-80 rounded-full
-                      bg-purple-300/30 blur-3xl pointer-events-none" />
-
-      <Header showBack backTo={`/teacher/class/${id}`} />
-
+    <div className="min-h-screen pb-24 relative">
+      <div className="fixed top-0 -left-32 w-80 h-80 rounded-full bg-brand-300/30 blur-3xl pointer-events-none" />
+      <div className="fixed bottom-0 -right-32 w-80 h-80 rounded-full bg-purple-300/30 blur-3xl pointer-events-none" />
+      <Header showBack backTo={`/teacher/class/${groupId}`} />
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-5 relative">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Сгенерировать тест
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Класс {group?.name} · каждому ученику — свой набор
-          </p>
+          <p className="text-xs font-medium text-brand-600 mb-2">{group ? `Класс ${group.name}` : 'Подготовка теста'}</p>
+          <h1 className="text-2xl font-bold text-slate-800">Сгенерировать тест</h1>
+          <p className="text-sm text-slate-500 mt-2">Выбери учеников и тему. Мы подберём задания, а последнее слово — за тобой.</p>
         </div>
-
-        {/* Форма генерации */}
-        <div className="glass-strong rounded-3xl p-5 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Тема
+        {groupQuery.isPending && <p className="text-sm text-slate-500" role="status">Загружаем класс…</p>}
+        {groupQuery.isError && <div role="alert" className="glass rounded-2xl p-4 text-sm text-red-600">
+          {getErrorMessage(groupQuery.error)} <button type="button" onClick={() => groupQuery.refetch()} className="underline ml-2">Повторить</button>
+        </div>}
+        {group && <>
+          <StudentPicker students={eligible} selectedIds={selectedIds} disabled={locked}
+            onChange={ids => { resetPreview(); setSelection(ids) }} />
+          <fieldset disabled={locked} className="glass-strong rounded-3xl p-5 space-y-4">
+            <legend className="sr-only">Настройки теста</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px] gap-4">
+              <label className="block text-sm font-medium text-slate-700">Тема
+                <select value={topic} onChange={e => { resetPreview(); setTopic(e.target.value) }} disabled={locked || topicsQuery.isPending || topicsQuery.isError}
+                  className="mt-2 w-full px-4 py-3 bg-white/70 border border-white/80 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-400">
+                  <option value="">{topicsQuery.isPending ? 'Загружаем темы…' : 'Выбери тему'}</option>
+                  {(topicsQuery.data || []).map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-slate-700">Заданий на ученика
+                <input type="number" min={1} max={20} step={1} value={nTasks}
+                  onChange={e => { resetPreview(); setNTasks(e.target.value === '' ? '' : Number(e.target.value)) }}
+                  aria-invalid={!validCount}
+                  className="mt-2 w-full px-4 py-3 bg-white/70 border border-white/80 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+              </label>
+            </div>
+            {!validCount && <p className="text-xs text-red-600">Укажи целое число от 1 до 20.</p>}
+            <label className="flex gap-3 items-start rounded-2xl bg-white/60 p-4 cursor-pointer">
+              <input type="checkbox" checked={!personalize} onChange={e => { resetPreview(); setPersonalize(!e.target.checked) }} className="w-4 h-4 mt-0.5 shrink-0 accent-pink-500" />
+              <span><span className="block text-sm font-semibold text-slate-700">Не персонализировать</span>
+                <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{personalize
+                  ? 'Сейчас каждому ученику подбирается свой набор по его навыкам.'
+                  : 'Один набор для всех. Подбор — по среднему уровню выбранных учеников.'}</span></span>
             </label>
-            <select
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              className="w-full px-4 py-3 bg-white/70 border border-white/80
-                         rounded-2xl text-base
-                         focus:outline-none focus:ring-2 focus:ring-brand-400
-                         focus:bg-white transition-all"
-              disabled={isBusy}
-            >
-              <option value="">— Выбери тему —</option>
-              {(topics || []).map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+            <button type="button" onClick={handleGenerate} disabled={locked || !topic || !selectedIds.length || !validCount}
+              className={`${generateMutation.isPending ? 'btn-loading' : 'bg-hyper text-white shadow-lg shadow-brand-500/20'} w-full font-semibold py-3.5 rounded-2xl disabled:opacity-50 disabled:shadow-none transition-all`}>
+              <span>{generateMutation.isPending ? '✨ Подбираем задания…' : preview ? '↻ Подобрать заново' : '✨ Сгенерировать'}</span>
+            </button>
+            {!selectedIds.length && <p className="text-xs text-slate-500">Выбери хотя бы одного ученика.</p>}
+          </fieldset>
+        </>}
+        {topicsQuery.isError && <div role="alert" className="text-sm text-red-600">
+          Не удалось загрузить темы. <button type="button" onClick={() => topicsQuery.refetch()} className="underline">Повторить</button>
+        </div>}
+        {error && <div role="alert" className="bg-red-50/80 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+        {generated && !preview && <div role="alert" className="glass rounded-2xl p-4 text-sm text-slate-600">
+          Состав класса изменился. Подбери тест заново для актуального списка учеников.
+          {savedId && <button type="button" disabled={busy} className="block mt-3 text-brand-600 font-semibold"
+            onClick={() => { resetPreview(); setTitle('') }}>Начать новый тест</button>}
+        </div>}
+        {preview && <section className="space-y-4" aria-label="Предпросмотр теста">
+          <div className="glass-tinted rounded-3xl p-5">
+            <p className="text-xs font-medium text-brand-600 mb-1">Проверь перед отправкой</p>
+            <h2 className="font-semibold text-slate-800">{preview.personalize ? 'Персональные наборы готовы' : 'Общий тест готов'}</h2>
+            <p className="text-sm text-slate-500 mt-2">Получателей: {preview.students.length} · заданий каждому: {preview.n_tasks}</p>
+            {!preview.personalize && <p className="text-xs text-slate-500 mt-2">Замена задания изменит его у всех получателей.</p>}
+            {preview.personalize && preview.usage_stats && <p className="text-xs text-slate-400 mt-2">Уникальных заданий: {preview.usage_stats.unique_tasks_used}</p>}
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Заданий на ученика
+          {preview.personalize ? preview.students.map(student => (
+            <details key={student.student_id} className="glass rounded-3xl p-4 group">
+              <summary className="cursor-pointer flex items-center justify-between gap-3 text-sm font-medium text-slate-700">
+                <span className="min-w-0 break-words">{student.full_name}</span><span className="text-xs text-slate-400 shrink-0">{student.tasks.length} заданий</span>
+              </summary>
+              <div className="mt-4">{renderTasks(student)}</div>
+            </details>
+          )) : <div className="space-y-3">{renderTasks(preview.students[0])}</div>}
+          <div className="glass-strong rounded-3xl p-5 space-y-4">
+            <label className="block text-sm font-medium text-slate-700">Название теста
+              <input value={title} onChange={e => setTitle(e.target.value)} disabled={locked} maxLength={200}
+                className="mt-2 w-full px-4 py-3 bg-white/70 border border-white/80 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
             </label>
-            <input
-              type="number"
-              value={nTasks}
-              min={1}
-              max={15}
-              onChange={(e) => {
-                const v = e.target.value
-                setNTasks(v === '' ? '' : Number(v))
-              }}
-              className="w-full px-4 py-3 bg-white/70 border border-white/80
-                         rounded-2xl text-base
-                         focus:outline-none focus:ring-2 focus:ring-brand-400
-                         focus:bg-white transition-all"
-              disabled={isBusy}
-            />
+            {savedId ? <>
+              <p className="text-sm text-emerald-700">✓ Черновик сохранён. Ученики увидят тест после отправки.</p>
+              <button type="button" disabled={busy} onClick={() => { if (savedId && preview && !busy) { setError(''); sendMutation.mutate(savedId) } }}
+                className="w-full bg-hyper text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-brand-500/20 disabled:opacity-50">
+                {sendMutation.isPending ? 'Отправляем…' : '🚀 Отправить выбранным ученикам'}
+              </button>
+              <button type="button" disabled={busy} onClick={() => { resetPreview(); setTitle('') }} className="w-full py-2 text-sm text-slate-500">Начать новый тест</button>
+            </> : <>
+              <p className="text-xs text-slate-500">После сохранения набор будет зафиксирован. До этого можно заменить любое задание.</p>
+              <button type="button" onClick={handleSave} disabled={busy || title.trim().length < 2}
+                className="w-full bg-hyper text-white font-semibold py-3.5 rounded-2xl shadow-lg shadow-brand-500/20 disabled:opacity-50">
+                {saveMutation.isPending ? 'Сохраняем…' : '💾 Сохранить черновик'}
+              </button>
+            </>}
           </div>
-
-          {error && (
-            <div className="bg-red-50/80 border border-red-200 rounded-2xl
-                            p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {/* Кнопка генерации — с анимацией и прогрессом */}
-          {generateMutation.isPending ? (
-  <div className="space-y-3">
-    <button
-      disabled
-      className="btn-loading w-full font-semibold py-3.5
-                 rounded-2xl transition-all"
-    >
-      <span className="sparkle-container text-lg leading-none">
-        <span className="sparkle">✨</span>
-      </span>
-      <span>Генерируем...</span>
-    </button>
-    <div>
-      <div className="progress-bar">
-        <div
-          className="progress-bar__fill"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <p className="text-xs text-slate-500 text-center mt-2">
-        {progress < 30 && 'Подбираем задания по графу знаний...'}
-        {progress >= 30 && progress < 60 && 'Проверяем prerequisite...'}
-        {progress >= 60 && progress < 90 && 'Распределяем diversity...'}
-        {progress >= 90 && 'Финальная сборка...'}
-      </p>
-    </div>
-  </div>
-) : (
-  <button
-    onClick={handleGenerate}
-    disabled={isBusy || !topic}
-    className="w-full bg-hyper text-white font-semibold py-3.5
-               rounded-2xl shadow-lg shadow-brand-500/30
-               hover:shadow-xl transition-all
-               disabled:opacity-50 disabled:shadow-none"
-  >
-    ✨ Сгенерировать
-  </button>
-)}
-        </div>
-
-        {/* Превью сгенерированного теста */}
-        {generated && (
-          <>
-            <div className="glass rounded-2xl p-4 space-y-2">
-              <h3 className="font-semibold text-slate-800 text-sm">
-                Готово: {generated.students.length} персональных тестов
-              </h3>
-              {generated.usage_stats && (
-                <p className="text-xs text-slate-500">
-                  Уникальных заданий:{' '}
-                  {generated.usage_stats.unique_tasks_used} из{' '}
-                  {generated.usage_stats.total_tasks_used} использований
-                  {' · '}
-                  макс. повтор: {generated.usage_stats.max_usage}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {generated.students.map((s) => (
-                <details
-                  key={s.student_id}
-                  className="glass rounded-2xl p-3 group"
-                >
-                  <summary className="cursor-pointer flex items-center
-                                      justify-between list-none">
-                    <span className="font-medium text-slate-800 text-sm truncate">
-                      {s.full_name}
-                    </span>
-                    <span className="text-xs text-slate-500 shrink-0 ml-2">
-                      {s.tasks.length} заданий
-                    </span>
-                  </summary>
-                  <div className="mt-3 space-y-1.5 pl-1">
-                    {s.tasks.map((t, i) => (
-                      <div
-                        key={t.task_id}
-                        className="text-xs text-slate-600 flex gap-2"
-                      >
-                        <span className="font-mono text-slate-400 shrink-0">
-                          {i + 1}.
-                        </span>
-                        <span className="font-mono text-brand-600 shrink-0">
-                          {t.code}
-                        </span>
-                        <span className="text-slate-500 truncate">
-                          {t.text}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ))}
-            </div>
-
-            {/* Форма сохранения */}
-            {!savedId && (
-              <div className="glass-strong rounded-3xl p-5 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Название теста
-                  </label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/70 border border-white/80
-                               rounded-2xl text-base
-                               focus:outline-none focus:ring-2 focus:ring-brand-400
-                               focus:bg-white transition-all"
-                    disabled={isBusy}
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleSave}
-                    disabled={isBusy}
-                    className="flex-1 bg-white/80 hover:bg-white text-slate-700
-                               font-semibold py-3 rounded-2xl transition-colors
-                               disabled:opacity-50"
-                  >
-                    {saveMutation.isPending ? 'Сохраняем...' : '💾 Сохранить'}
-                  </button>
-                  <button
-                    onClick={handleGenerate}
-                    disabled={isBusy}
-                    className="px-5 bg-slate-100 hover:bg-slate-200
-                               text-slate-600 font-medium rounded-2xl
-                               transition-colors disabled:opacity-50 text-sm"
-                  >
-                    ↻ Заново
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Отправка */}
-            {savedId && (
-              <div className="glass-tinted rounded-3xl p-5 space-y-4
-                              ring-1 ring-white/40">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    ✓ Черновик сохранён
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Отправь тест ученикам, чтобы они увидели его в приложении
-                  </p>
-                </div>
-                <button
-                  onClick={handleSend}
-                  disabled={sendMutation.isPending}
-                  className="w-full bg-hyper text-white font-semibold py-3.5
-                             rounded-2xl shadow-lg shadow-brand-500/30
-                             hover:shadow-xl transition-all disabled:opacity-50"
-                >
-                  {sendMutation.isPending
-                    ? 'Отправляем...'
-                    : '🚀 Отправить ученикам'}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+        </section>}
       </main>
     </div>
   )
