@@ -13,6 +13,8 @@ import History from './pages/History'
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
 import TeacherClass from './pages/teacher/TeacherClass'
 import TeacherGenerate from './pages/teacher/TeacherGenerate'
+import TeacherAssignment from './pages/teacher/TeacherAssignment'
+import TeacherStudent from './pages/teacher/TeacherStudent'
 import { useSwipeBack } from './hooks/useSwipeBack'
 import Landing from './pages/Landing'
 import DemoTest from './pages/DemoTest'
@@ -118,6 +120,8 @@ function App() {
       />
 
       {/* Лендинг — публичный */}
+      <Route path="/teacher/assignment/:id" element={<ProtectedRoute teacherOnly><TeacherAssignment /></ProtectedRoute>} />
+      <Route path="/teacher/student/:id" element={<ProtectedRoute teacherOnly><TeacherStudent /></ProtectedRoute>} />
 <Route path="/" element={<Landing />} />
 
 {/* Демо */}

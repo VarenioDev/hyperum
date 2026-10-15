@@ -35,17 +35,15 @@ async def submit_response(
         )
 
     with tenant_session(user.tenant_id) as session:
-        result = svc.submit_response(
-        session,
-        tenant_id=user.tenant_id,
-        student_id=user.id,
-        task_id=payload.task_id,
-        assignment_id=payload.assignment_id,
-        answer=payload.answer,
-        time_sec=payload.time_sec,
-        skipped=payload.skipped,
-        surrendered=payload.surrendered,
-    )
+        try:
+            result = svc.submit_response(
+                session, tenant_id=user.tenant_id, student_id=user.id,
+                task_id=payload.task_id, assignment_id=payload.assignment_id,
+                answer=payload.answer, time_sec=payload.time_sec,
+                skipped=payload.skipped, surrendered=payload.surrendered,
+            )
+        except svc.InvalidAssignmentResponse as exc:
+            raise HTTPException(403, detail=str(exc)) from exc
 
     if result is None:
         raise HTTPException(
@@ -58,6 +56,7 @@ async def submit_response(
         expected=result["expected"],
         explanation=None,
         new_mastery=result["new_mastery"],
+        skipped=result.get('skipped', False),
     )
 
 

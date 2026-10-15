@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { generateTest, getTopics, regenerateTask, saveGeneratedTest, sendAssignment,
   type GeneratedTest, type GeneratedStudentTest } from '../../api/assignments'
@@ -12,15 +12,16 @@ import { matchesConfiguration, replacePreviewTask } from './generationDraft'
 
 export default function TeacherGenerate() {
   const { id } = useParams<{ id: string }>()
-  return id ? <Generator key={id} groupId={id} /> : <p>Класс не найден</p>
+  const [params] = useSearchParams()
+  return id ? <Generator key={`${id}:${params.toString()}`} groupId={id} initialStudent={params.get('student')} initialTopic={params.get('topic')} /> : <p>Класс не найден</p>
 }
 
-function Generator({ groupId }: { groupId: string }) {
+function Generator({ groupId, initialStudent, initialTopic }: { groupId: string; initialStudent: string | null; initialTopic: string | null }) {
   const navigate = useNavigate()
-  const [topic, setTopic] = useState('')
+  const [topic, setTopic] = useState(initialTopic || '')
   const [nTasks, setNTasks] = useState<number | ''>(5)
   const [personalize, setPersonalize] = useState(true)
-  const [selection, setSelection] = useState<string[] | null>(null)
+  const [selection, setSelection] = useState<string[] | null>(initialStudent ? [initialStudent] : null)
   const [title, setTitle] = useState('')
   const [generated, setGenerated] = useState<GeneratedTest | null>(null)
   const [savedId, setSavedId] = useState<string | null>(null)

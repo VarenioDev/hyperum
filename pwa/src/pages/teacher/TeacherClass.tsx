@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getGroupDetail,
@@ -12,11 +12,22 @@ import { getErrorMessage } from '../../api/client'
 import Header from '../../components/Header'
 import InviteCodeBlock from '../../components/teacher/InviteCodeBlock'
 import PendingStudentCard from '../../components/teacher/PendingStudentCard'
+import { getClassAssignments } from '../../api/teacher'
+import { AssignmentCards, ReportError, ReportTabs } from '../../components/teacher/ReportUI'
+import { latestStudentTest, resultText } from '../../components/teacher/reportUtils'
 
 export default function TeacherClass() {
   const { id } = useParams<{ id: string }>()
+  return id ? <ClassPage key={id} id={id} /> : <p>Класс не найден</p>
+}
+
+function ClassPage({ id }: { id: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'tests' ? 'tests' : 'students'
+  const [search, setSearch] = useState('')
+  const assignments = useQuery({ queryKey: ['teacher-class-assignments', id], queryFn: () => getClassAssignments(id!), enabled: !!id })
 
   // Стейт для редактирования ФИО ученика
   const [editingStudent, setEditingStudent] = useState<StudentBrief | null>(null)
@@ -103,6 +114,8 @@ export default function TeacherClass() {
 
   const pending = group.students.filter((s) => s.status === 'pending')
   const active = group.students.filter((s) => s.status === 'active')
+  const words = search.trim().toLocaleLowerCase('ru').split(/\s+/)
+  const visible = active.filter(s => words.every(word => s.full_name.toLocaleLowerCase('ru').includes(word)))
 
   return (
     <div className="min-h-screen pb-8 relative">
@@ -113,7 +126,7 @@ export default function TeacherClass() {
 
       <Header showBack backTo="/teacher" />
 
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-6 relative">
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-5 relative">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold text-slate-800">{group.name}</h1>
@@ -150,24 +163,25 @@ export default function TeacherClass() {
                      hover:shadow-xl transition-all"
         >
           <span className="whitespace-nowrap">
-            ✨ Сгенерировать персональные тесты
+            ✨ Создать тест
           </span>
         </button>
 
         {group.invite_code && (
-          <InviteCodeBlock
+          <details key={`${group.id}:${active.length === 0}`} open={active.length === 0} className="glass rounded-2xl p-4">
+          <summary className="text-sm font-medium text-slate-700 cursor-pointer">Пригласить учеников</summary><div className="mt-4"><InviteCodeBlock
             groupId={group.id}
             code={group.invite_code}
             groupName={group.name}
-          />
+          /></div></details>
         )}
 
         {pending.length > 0 && (
-          <section>
-            <h2 className="text-base font-semibold text-slate-700 mb-3">
+          <details className="glass rounded-2xl p-4">
+            <summary className="text-sm font-semibold text-brand-700 cursor-pointer">
               Ждут подтверждения ({pending.length})
-            </h2>
-            <div className="space-y-3">
+            </summary>
+            <div className="space-y-3 mt-4">
               {pending.map((s) => (
                 <PendingStudentCard
                   key={s.id}
@@ -176,13 +190,20 @@ export default function TeacherClass() {
                 />
               ))}
             </div>
-          </section>
+          </details>
         )}
 
-        <section>
+        <ReportTabs active={tab} onChange={value => setParams(value === 'tests' ? { tab: 'tests' } : {})}
+          items={[{ id: 'students', label: `Ученики · ${active.length}` }, { id: 'tests', label: `Тесты${assignments.data ? ` · ${assignments.data.length}` : ''}` }]} />
+        {assignments.isPending && <p role="status" className="text-xs text-slate-500">Загружаем тесты и результаты…</p>}
+        {assignments.isError && <ReportError error={assignments.error} retry={() => assignments.refetch()} />}
+        {removeMutation.isError && <ReportError error={removeMutation.error} retry={() => removeMutation.reset()} />}
+        {tab === 'tests' && assignments.data && <section className="space-y-3"><h2 className="font-semibold text-slate-800">Тесты класса</h2><AssignmentCards assignments={assignments.data} /></section>}
+        {tab === 'students' && <section className="space-y-3">
           <h2 className="text-base font-semibold text-slate-700 mb-3">
             Ученики ({active.length})
           </h2>
+          <label className="block"><span className="sr-only">Найти ученика по имени</span><input type="search" placeholder="Найти по имени" value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-white/80 rounded-2xl px-4 py-3 border border-white text-sm" /></label>
 
           {active.length === 0 && (
             <div className="glass rounded-2xl p-6 text-center">
@@ -198,17 +219,18 @@ export default function TeacherClass() {
 
           {active.length > 0 && (
             <div className="space-y-2">
-              {active.map((s) => (
+              {visible.map((s) => (
                 <StudentRowWithMenu
                   key={s.id}
                   student={s}
+                  activityText={assignments.data ? (() => { const test = latestStudentTest(assignments.data, s.id); const result = test?.students.find(r => r.student_id === s.id); return test && result ? `${test.title} · ${resultText(result)}` : 'Тесты ещё не назначены' })() : assignments.isError ? 'Не удалось загрузить результаты' : 'Загружаем результаты…'}
                   menuOpen={menuOpen === s.id}
                   onToggleMenu={() =>
                     setMenuOpen(menuOpen === s.id ? null : s.id)
                   }
                   onOpen={() => {
                     setMenuOpen(null)
-                    navigate(`/teacher/student/${s.id}`)
+                    navigate(`/teacher/student/${s.id}?class=${group.id}`)
                   }}
                   onEdit={() => openEdit(s)}
                   onRemove={() => handleRemove(s)}
@@ -216,7 +238,8 @@ export default function TeacherClass() {
               ))}
             </div>
           )}
-        </section>
+          {!!active.length && !visible.length && <p className="text-sm text-slate-500">По этому имени учеников нет.</p>}
+        </section>}
       </main>
 
       {/* Модалка редактирования ФИО */}
@@ -321,24 +344,9 @@ export default function TeacherClass() {
 
 // ─── Компонент строки ученика с меню ─────────────────
 
-function pluralDays(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'день'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня'
-  return 'дней'
-}
-
-function pluralTests(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'тест'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'теста'
-  return 'тестов'
-}
-
 function StudentRowWithMenu({
   student,
+  activityText,
   menuOpen,
   onToggleMenu,
   onOpen,
@@ -346,6 +354,7 @@ function StudentRowWithMenu({
   onRemove,
 }: {
   student: StudentBrief
+  activityText: string
   menuOpen: boolean
   onToggleMenu: () => void
   onOpen: () => void
@@ -353,40 +362,6 @@ function StudentRowWithMenu({
   onRemove: () => void
 }) {
   // Логика отображения статуса
-  const hasActive = student.active_assignments > 0
-  const hasCompleted = student.last_completed_score !== null
-  const isSilent =
-    student.days_since_activity !== null && student.days_since_activity >= 3
-
-  let icon = '⏳'
-  let mainText = 'Ещё не решал'
-  let subText: string | null = null
-
-  if (hasActive) {
-    icon = '🎯'
-    mainText = `${student.active_assignments} ${pluralTests(student.active_assignments)} не завершено`
-    if (isSilent && student.days_since_activity !== null) {
-  subText = `⏰ ${student.days_since_activity} ${pluralDays(student.days_since_activity)} не заходил`
-}
-  } else if (hasCompleted) {
-  const [correct, total] = (student.last_completed_score || '0/0').split('/').map(Number)
-  const successRate = total > 0 ? correct / total : 0
-
-  if (successRate === 0) {
-    icon = '⚠️'
-    mainText = 'Последний тест провален'
-    subText = `Результат: ${student.last_completed_score}`
-  } else if (successRate < 0.5) {
-    icon = '✅'
-    mainText = 'Есть пройденные тесты'
-    subText = `Последний: ${student.last_completed_score}`
-  } else {
-    icon = '✅'
-    mainText = 'Все тесты пройдены'
-    subText = `Последний: ${student.last_completed_score}`
-  }
-}
-
   return (
     <div className="relative rounded-2xl">
       <div className="absolute inset-0 glass rounded-2xl pointer-events-none" />
@@ -395,24 +370,18 @@ function StudentRowWithMenu({
           onClick={onOpen}
           className="flex-1 flex items-center gap-3 text-left min-w-0"
         >
-          <span className="text-2xl shrink-0">{icon}</span>
+          <span className="w-10 h-10 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center font-semibold shrink-0">{student.full_name.charAt(0)}</span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">
+            <p className="text-sm font-medium text-slate-800 break-words">
               {student.full_name}
             </p>
-            <p
-              className={`text-xs mt-0.5 truncate ${
-                isSilent && hasActive
-                  ? 'text-red-500 font-medium'
-                  : 'text-slate-500'
-              }`}
-            >
-              {mainText}
-              {subText && <span className="text-slate-400"> · {subText}</span>}
-            </p>
+            <p className="text-xs mt-1 text-slate-600 break-words">{activityText}</p>
+            {student.days_since_activity != null && <p className="text-xs text-slate-400 mt-1">{student.days_since_activity === 0 ? 'Ответил сегодня' : `Последний ответ: ${student.days_since_activity} дн. назад`}</p>}
           </div>
         </button>
         <button
+          aria-label={`Действия с учеником: ${student.full_name}`}
+          aria-expanded={menuOpen}
           onClick={onToggleMenu}
           className="shrink-0 w-8 h-8 flex items-center justify-center
                      text-slate-400 hover:text-slate-600 hover:bg-white/60

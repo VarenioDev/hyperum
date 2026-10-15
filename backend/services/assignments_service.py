@@ -340,11 +340,8 @@ def list_assignments_for_student(
                     ON at.task_id = r.task_id AND at.assignment_id = a.id
                     WHERE at.student_id = :sid
                     AND r.student_id = :sid
+                    AND r.assignment_id = a.id
                     AND (r.correct IS NOT NULL OR r.skipped = TRUE)
-                    AND r.created_at >= COALESCE(
-                        (SELECT sent_at FROM assignments WHERE id = a.id),
-                        '1970-01-01'::timestamptz
-                    )
                     ) AS completed_count
         FROM assignments a
         JOIN assignment_students ast ON ast.assignment_id = a.id
@@ -368,8 +365,12 @@ def get_assignment_tasks(
     session: Session, assignment_id: str, student_id: str
 ) -> list[dict] | None:
     check = session.execute(text("""
-        SELECT 1 FROM assignment_students
-        WHERE assignment_id = :aid AND student_id = :sid
+        SELECT 1 FROM assignment_students ast
+        JOIN assignments a ON a.id=ast.assignment_id
+        JOIN memberships m ON m.group_id=a.group_id AND m.user_id=ast.student_id
+        WHERE ast.assignment_id = :aid AND ast.student_id = :sid
+          AND a.status IN ('sent','completed') AND m.role='student' AND m.status='active'
+          AND a.tenant_id=current_setting('app.current_tenant', true)
     """), {"aid": assignment_id, "sid": student_id}).fetchone()
     if not check:
         return None
@@ -377,7 +378,10 @@ def get_assignment_tasks(
     rows = session.execute(text("""
         SELECT at.position, t.id, t.code, t.text, t.type, t.options,
                t.answer AS expected,
-               r.answer, r.correct, r.skipped, r.time_sec, r.surrendered
+               r.answer, r.correct, r.skipped, r.time_sec, r.surrendered,
+               EXISTS (SELECT 1 FROM responses old JOIN assignments oa ON oa.id=at.assignment_id
+                   WHERE old.student_id=at.student_id AND old.task_id=at.task_id AND old.context='legacy'
+                     AND old.created_at>=COALESCE(oa.sent_at,oa.created_at)) AS has_legacy
         FROM assignment_tasks at
         JOIN tasks t ON t.id = at.task_id
         LEFT JOIN LATERAL (
@@ -385,11 +389,8 @@ def get_assignment_tasks(
             FROM responses r
             WHERE r.task_id = at.task_id
               AND r.student_id = at.student_id
-              AND r.created_at >= COALESCE(
-                  (SELECT sent_at FROM assignments WHERE id = :aid),
-                  '1970-01-01'::timestamptz
-              )
-            ORDER BY r.created_at DESC
+              AND r.assignment_id = at.assignment_id
+            ORDER BY r.created_at DESC, r.id DESC
             LIMIT 1
         ) r ON TRUE
         WHERE at.assignment_id = :aid AND at.student_id = :sid
@@ -402,6 +403,7 @@ def get_assignment_tasks(
             "position": r[0], "task_id": str(r[1]), "code": r[2],
             "text": r[3], "type": r[4], "options": r[5],
             "previous_response": None,
+            "has_legacy": r[12],
         }
 
         if r[7] is not None or r[9] is True:

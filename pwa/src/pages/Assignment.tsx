@@ -253,6 +253,7 @@ export default function Assignment() {
 
       {/* Main content */}
       <main className="max-w-2xl mx-auto px-4 py-6 pb-32">
+        {tasks.some(t => t.has_legacy) && <p className="text-xs text-amber-900 bg-amber-50 rounded-2xl p-4 mb-4">Ответы до обновления сохранены в истории. Их нельзя точно связать с этим тестом, поэтому здесь показаны только новые попытки.</p>}
         {currentTask && (
           <>
             <p className="text-xs text-slate-400 mb-2 text-center">

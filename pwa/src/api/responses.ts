@@ -40,6 +40,8 @@ export interface MyResponse {
   created_at: string
   assignment_title: string | null
   skill_name: string | null
+  context: 'assignment' | 'practice' | 'legacy'
+  surrendered: boolean
 }
 
 export async function getMyResponses(

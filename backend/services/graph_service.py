@@ -149,6 +149,7 @@ def get_student_graph(
     user_row = session.execute(text("""
         SELECT id, full_name FROM users
         WHERE id = :sid AND role = 'student'
+          AND tenant_id=current_setting('app.current_tenant', true)
     """), {"sid": str(student_id)}).fetchone()
 
     if user_row is None:
@@ -159,15 +160,18 @@ def get_student_graph(
 
     # PostgreSQL: mastery ученика
     mastery = _fetch_mastery(session, student_id)
+    attempts = dict(session.execute(text('SELECT skill_id, attempts FROM student_mastery WHERE student_id=:sid'),
+                                   {'sid': str(student_id)}).fetchall())
 
     # Собираем узлы с mastery
     nodes = []
     for n in nodes_raw:
-        m = mastery.get(n["id"])
+        m = mastery.get(n["id"]) if attempts.get(n['id'], 0) > 0 else None
         nodes.append(GraphNode(
             id=n["id"], name=n["name"],
             module=n.get("module"), topic=n.get("topic"),
             mastery=m,
+            attempts=attempts.get(n['id'], 0),
             status=_mastery_status(m),
         ))
 

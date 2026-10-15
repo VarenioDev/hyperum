@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Backend code is unchanged. Publish compiled assets before the new index/SW.
+# Frontend publication only; backend/migrations must be deployed separately.
+# Publish compiled assets before the new index/SW.
 release_dir=${1:?Usage: deploy_task_text_frontend.sh RELEASE_DIRECTORY}
 source_dir=$(realpath "$release_dir/pwa/dist")
 target_dir=$(realpath /var/www/hyperum)
@@ -13,6 +14,10 @@ find "$source_dir" -mindepth 1 -maxdepth 1 -type d ! -name assets \
     -exec cp -a {} "$target_dir/" \;
 find "$source_dir" -maxdepth 1 -type f ! -name index.html ! -name sw.js \
     -exec cp -a {} "$target_dir/" \;
+# Archives copied from Windows can preserve owner-only directory permissions.
+# This directory contains public PWA assets only; nginx must be able to read them.
+find "$target_dir" -type d -exec chmod 755 {} +
+find "$target_dir" -type f -exec chmod 644 {} +
 cp "$source_dir/index.html" "$target_dir/.index-normalization.html"
 chmod 644 "$target_dir/.index-normalization.html"
 mv "$target_dir/.index-normalization.html" "$target_dir/index.html"

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test:generation": "node scripts/test-generation-draft.mjs && node scripts/test-generation-render.mjs",
+    "test:reports": "node scripts/test-teacher-reports.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -27,6 +28,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@types/katex": "^0.16.8",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",

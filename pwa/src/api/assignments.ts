@@ -32,6 +32,7 @@ export interface AssignmentTask {
   type: string
   options: Record<string, unknown> | null
   previous_response: PreviousResponse | null
+  has_legacy: boolean
 }
 
 export async function getMyAssignments(): Promise<MyAssignment[]> {

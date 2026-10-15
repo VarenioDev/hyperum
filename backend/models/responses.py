@@ -3,6 +3,7 @@
 """
 from datetime import datetime
 from uuid import UUID
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -37,6 +38,8 @@ class ResponseResponse(BaseModel):
     created_at: datetime
     assignment_title: str | None = None
     skill_name: str | None = None
+    context: Literal['assignment', 'practice', 'legacy'] = 'legacy'
+    surrendered: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

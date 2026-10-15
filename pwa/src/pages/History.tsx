@@ -95,6 +95,8 @@ function ResponseCard({
               {r.assignment_title}
             </p>
           )}
+          {r.context === 'legacy' && <p className="text-xs text-amber-800 mb-1">До обновления · без точной привязки к тесту</p>}
+          {r.context === 'practice' && <p className="text-xs text-slate-500 mb-1">Самостоятельная практика</p>}
           <LatexText
             text={r.task_text || r.code || 'Задание'}
             className="text-sm text-slate-700 font-medium line-clamp-2"

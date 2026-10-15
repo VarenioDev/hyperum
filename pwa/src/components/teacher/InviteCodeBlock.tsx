@@ -39,7 +39,7 @@ export default function InviteCodeBlock({ groupId, code, groupName }: Props) {
     }
   }
 
-  const inviteLink = `${window.location.origin}/join?code=${currentCode}`
+  const inviteLink = `${typeof window === 'undefined' ? '' : window.location.origin}/join?code=${currentCode}`
 
   const handleRegenerate = () => {
     if (confirm('Сгенерировать новый код? Старый перестанет работать.')) {

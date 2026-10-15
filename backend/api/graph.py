@@ -9,6 +9,7 @@ from backend.db.postgres import tenant_session
 from backend.models.graph import GraphNode, GraphEdge, StudentGraph, ClassGraph
 from backend.models.users import UserResponse
 from backend.services import graph_service
+from backend.services.reporting_access import owned_student, owned_class, ReportNotFound
 
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -56,6 +57,11 @@ async def student_graph(
         )
 
     with tenant_session(user.tenant_id) as session:
+        if user.role in ('owner', 'admin'):
+            try:
+                owned_student(session, student_id, user.id)
+            except ReportNotFound as exc:
+                raise HTTPException(404, detail=str(exc)) from exc
         result = graph_service.get_student_graph(session, student_id)
 
     if result is None:
@@ -74,6 +80,10 @@ async def class_graph(
 ):
     """Агрегированный граф класса."""
     with tenant_session(user.tenant_id) as session:
+        try:
+            owned_class(session, group_id, user.id)
+        except ReportNotFound as exc:
+            raise HTTPException(404, detail=str(exc)) from exc
         result = graph_service.get_class_graph(session, group_id)
 
     if result is None:

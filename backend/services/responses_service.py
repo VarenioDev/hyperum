@@ -18,6 +18,10 @@ PRIOR = 0.5       # сглаживание к среднему при малом
 WEIGHT = 3.0      # «вес» prior'а (сколько виртуальных попыток)
 
 
+class InvalidAssignmentResponse(ValueError):
+    pass
+
+
 def _smoothed_mastery(correct: float, attempts: float) -> float:
     """
     Байесовское сглаживание mastery.
@@ -64,18 +68,21 @@ def save_response(
     answer: str,
     correct: bool,
     time_sec: int | None = None,
+    assignment_id: UUID | str | None = None,
 ) -> str:
     """Записать ответ в БД. Возвращает UUID ответа."""
     response_id = session.execute(text("""
         INSERT INTO responses
-            (tenant_id, student_id, task_id, answer, correct, time_sec)
+            (tenant_id, student_id, task_id, answer, correct, time_sec, assignment_id, context, created_at)
         VALUES
-            (:t, :s, :task, :a, :c, :time)
+            (:t, :s, :task, :a, :c, :time, :aid, :context, clock_timestamp())
         RETURNING id
     """), {
         "t": tenant_id, "s": str(student_id),
         "task": str(task_id), "a": answer,
         "c": correct, "time": time_sec,
+        "aid": str(assignment_id) if assignment_id else None,
+        "context": 'assignment' if assignment_id else 'practice',
     }).scalar()
     return str(response_id)
 
@@ -224,22 +231,19 @@ def _mark_assignment_completed_if_done(
                ON at.task_id = r.task_id AND at.assignment_id = :aid
              WHERE at.student_id = :sid
                AND r.student_id = :sid
+               AND r.assignment_id = :aid
                AND (r.correct IS NOT NULL OR r.skipped = TRUE)
-               AND r.created_at >= COALESCE(
-                   (SELECT sent_at FROM assignments WHERE id = :aid),
-                   '1970-01-01'::timestamptz
-               )
             ) AS done
     """), {"aid": str(assignment_id), "sid": str(student_id)}).fetchone()
 
-    if stats and stats[0] > 0 and stats[0] == stats[1]:
+    if stats and stats[0] > 0:
         session.execute(text("""
             UPDATE assignment_students
-            SET status = 'completed', completed_at = now()
+            SET status = CASE WHEN :done = :total THEN 'completed' ELSE 'in_progress' END,
+                completed_at = CASE WHEN :done = :total THEN COALESCE(completed_at, now()) ELSE NULL END
             WHERE assignment_id = :aid
               AND student_id = :sid
-              AND status != 'completed'
-        """), {"aid": str(assignment_id), "sid": str(student_id)})
+        """), {"aid": str(assignment_id), "sid": str(student_id), 'done': stats[1], 'total': stats[0]})
 
 
 # ─── Полный цикл: приём ответа ───────────────────────────────
@@ -259,6 +263,22 @@ def submit_response(
     Полный цикл: проверка + сохранение + обновление mastery + автозакрытие.
     Возвращает словарь с результатом или None, если задание не найдено.
     """
+    # Assignment context is explicit and checked before any answer is revealed or saved.
+    if surrendered:
+        skipped = True
+    if assignment_id:
+        allowed = session.execute(text("""
+            SELECT 1 FROM assignment_tasks at
+            JOIN assignments a ON a.id=at.assignment_id
+            JOIN assignment_students ast ON ast.assignment_id=at.assignment_id AND ast.student_id=at.student_id
+            JOIN memberships m ON m.group_id=a.group_id AND m.user_id=at.student_id
+            WHERE at.assignment_id=:aid AND at.student_id=:sid AND at.task_id=:tid
+              AND a.tenant_id=:tenant AND a.status IN ('sent','completed')
+              AND m.role='student' AND m.status='active'
+            FOR UPDATE OF ast
+        """), {'aid': str(assignment_id), 'sid': str(student_id), 'tid': str(task_id), 'tenant': tenant_id}).fetchone()
+        if not allowed:
+            raise InvalidAssignmentResponse('Это задание недоступно в выбранном тесте')
     # Проверка, что задание существует
     check = session.execute(text("""
         SELECT 1 FROM tasks WHERE id = :tid
@@ -271,14 +291,16 @@ def submit_response(
         response_id = session.execute(text("""
             INSERT INTO responses
                 (tenant_id, student_id, task_id, answer, correct, time_sec,
-                 skipped, surrendered)
+                 skipped, surrendered, assignment_id, context, created_at)
             VALUES
-                (:t, :s, :task, '', NULL, :time, TRUE, :surr)
+                (:t, :s, :task, '', NULL, :time, TRUE, :surr, :aid, :context, clock_timestamp())
             RETURNING id
         """), {
             "t": tenant_id, "s": str(student_id),
             "task": str(task_id), "time": time_sec,
             "surr": surrendered,
+            "aid": str(assignment_id) if assignment_id else None,
+            "context": 'assignment' if assignment_id else 'practice',
         }).scalar()
 
         if assignment_id:
@@ -301,7 +323,7 @@ def submit_response(
 
     response_id = save_response(
         session, tenant_id, student_id, task_id,
-        answer, result["correct"], time_sec,
+        answer, result["correct"], time_sec, assignment_id,
     )
 
     skill_ids = get_task_skills(session, task_id)
@@ -347,27 +369,24 @@ def list_my_responses(
     Один ответ — одна строка (берём primary-навык, чтобы не было дублей).
     """
     rows = session.execute(text("""
-        SELECT DISTINCT ON (r.id)
+        SELECT
                r.id, r.task_id, t.code, t.text, t.answer,
                r.answer, r.correct, r.skipped, r.time_sec, r.created_at,
                a.title AS assignment_title,
-               s.name AS skill_name
+               skill.name AS skill_name, r.context, r.surrendered
         FROM responses r
         JOIN tasks t ON t.id = r.task_id
-        LEFT JOIN assignment_tasks at
-          ON at.task_id = r.task_id AND at.student_id = r.student_id
-        LEFT JOIN assignments a ON a.id = at.assignment_id
-        LEFT JOIN task_labels tl
-          ON tl.task_id = r.task_id
-         AND tl.model = 'deepseek'
-         AND tl.is_primary = TRUE
-        LEFT JOIN skills s ON s.id = tl.skill_id
+        LEFT JOIN assignments a ON a.id = r.assignment_id
+        LEFT JOIN LATERAL (
+            SELECT s.name FROM task_labels tl JOIN skills s ON s.id=tl.skill_id
+            WHERE tl.task_id=r.task_id AND tl.model='deepseek' AND tl.is_primary=TRUE
+            ORDER BY tl.skill_id LIMIT 1
+        ) skill ON TRUE
         WHERE r.student_id = :sid
-        ORDER BY r.id, r.created_at DESC
+        ORDER BY r.created_at DESC, r.id DESC
         LIMIT :lim OFFSET :off
     """), {"sid": str(student_id), "lim": limit, "off": offset}).fetchall()
 
-    # После DISTINCT ON (r.id) — сортировка по дате
     result = [
         {
             "id": r[0], "task_id": r[1], "code": r[2],
@@ -375,6 +394,7 @@ def list_my_responses(
             "answer": r[5], "correct": r[6], "skipped": r[7],
             "time_sec": r[8], "created_at": r[9],
             "assignment_title": r[10], "skill_name": r[11],
+            "context": r[12], "surrendered": r[13],
         }
         for r in rows
     ]
@@ -424,42 +444,16 @@ def assignment_progress(
     teacher_id: UUID | str,
 ) -> dict | None:
     """Прогресс по назначению. Только для автора."""
-    row = session.execute(text("""
-        SELECT created_by, title FROM assignments WHERE id = :aid
-    """), {"aid": str(assignment_id)}).fetchone()
-
-    if row is None:
+    from backend.services.teacher_reporting import assignment_matrix
+    from backend.services.reporting_access import ReportNotFound
+    try:
+        report = assignment_matrix(session, assignment_id, teacher_id)
+    except ReportNotFound:
         return None
-    if str(row[0]) != str(teacher_id):
-        return None
-
-    stats = session.execute(text("""
-        SELECT
-            (SELECT COUNT(*) FROM assignment_students
-             WHERE assignment_id = :aid) AS total_students,
-            (SELECT COUNT(*) FROM assignment_students
-             WHERE assignment_id = :aid AND status = 'completed') AS completed,
-            (SELECT COUNT(*) FROM responses r
-             JOIN assignment_tasks at ON at.task_id = r.task_id
-                AND at.assignment_id = :aid
-             WHERE r.student_id = at.student_id) AS total_attempts,
-            (SELECT COUNT(*) FROM responses r
-             JOIN assignment_tasks at ON at.task_id = r.task_id
-                AND at.assignment_id = :aid
-             WHERE r.student_id = at.student_id AND r.correct) AS total_correct
-    """), {"aid": str(assignment_id)}).fetchone()
-
-    total_students = stats[0] or 0
-    completed = stats[1] or 0
-    total_attempts = stats[2] or 0
-    total_correct = stats[3] or 0
-    correct_rate = total_correct / total_attempts if total_attempts else 0.0
-
-    return {
-        "assignment_id": str(assignment_id),
-        "title": row[1],
-        "total_students": total_students,
-        "completed_students": completed,
-        "total_attempts": total_attempts,
-        "correct_rate": round(correct_rate, 3),
-    }
+    summary = report['summary']
+    attempts = session.execute(text("SELECT COUNT(*) FROM responses WHERE assignment_id=:aid"),
+                               {'aid': str(assignment_id)}).scalar() or 0
+    return dict(assignment_id=str(assignment_id), title=report['assignment']['title'],
+                total_students=summary['students_count'], completed_students=summary['completed_count'],
+                total_attempts=attempts,
+                correct_rate=round(summary['correct_count']/summary['answered_count'], 3) if summary['answered_count'] else 0.0)

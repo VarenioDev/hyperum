@@ -132,10 +132,10 @@ def get_group_detail(
                  WHERE at.student_id = ast3.student_id
                    AND r.student_id = ast3.student_id
                    AND r.correct = TRUE
-                   AND r.created_at >= COALESCE(
-                       (SELECT sent_at FROM assignments WHERE id = ast3.assignment_id),
-                       '1970-01-01'::timestamptz
-                   )
+                   AND r.assignment_id=ast3.assignment_id
+                   AND r.id=(SELECT last.id FROM responses last
+                       WHERE last.assignment_id=r.assignment_id AND last.student_id=r.student_id AND last.task_id=r.task_id
+                       ORDER BY last.created_at DESC, last.id DESC LIMIT 1)
                 )::text
                 || '/'
                 || (SELECT COUNT(*) FROM assignment_tasks

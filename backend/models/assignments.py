@@ -91,6 +91,7 @@ class AssignmentTaskForStudent(BaseModel):
     type: str
     options: dict | None = None
     previous_response: PreviousResponse | None = None
+    has_legacy: bool = False
 
     model_config = {"from_attributes": True}
 
